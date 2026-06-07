@@ -1,53 +1,57 @@
 # bevy-ds
 
-Running the [Bevy](https://bevyengine.org/) engine's ECS on the **Nintendo DS**,
-packaged into a bootable `.nds` ROM and previewed on an emulator — all from a
-reproducible Nix dev shell.
+[Bevy](https://bevyengine.org/)'s ECS running on a **Nintendo DS**, built into a
+real `.nds` ROM you can boot in an emulator (or on hardware). The whole thing
+comes out of a Nix dev shell, so there's no toolchain to install by hand.
 
-The project is split into three crates:
+It started as a "can this even work?" experiment and grew into a small library
+plus a tech demo. There are three crates:
 
-- **`bevy_nds`** (`crates/bevy_nds`) — a reusable library that wires Bevy's
-  `no_std` ECS/App core to the DS hardware (via [libnds](https://github.com/blocksds/libnds))
-  and exposes it as idiomatic Bevy **plugins**, **components** and **resources**.
-- **`bevy_nds_3d`** (`crates/bevy_nds_3d`) — an additive rendering backend that
-  drives the DS **hardware 3D engine**, exposing `Transform3d`, `DsMesh` and a
-  `Camera3d` resource. Depends on `bevy_nds` for the platform layer.
-- **`bevy-ds`** (the root crate) — the game, a *pure-Bevy consumer* of
-  `bevy_nds`. It contains no FFI, no allocator and no panic handler: just
-  components and systems.
+- **`bevy_nds`** (`crates/bevy_nds`) — the library. It glues Bevy's `no_std`
+  ECS/App core to the DS hardware through [libnds](https://github.com/blocksds/libnds)
+  and hands it back as normal Bevy plugins, components and resources.
+- **`bevy_nds_3d`** (`crates/bevy_nds_3d`) — an add-on that drives the DS's
+  hardware 3D engine, with `Transform3d`, `DsMesh` and a `Camera3d` resource.
+  Built on top of `bevy_nds`.
+- **`bevy-ds`** (the root crate) — the demo itself. It's plain Bevy: components
+  and systems, no FFI or allocator or panic handler in sight.
 
 <p align="center">
   <img src="docs/cube-demo.png" alt="The hardware-rendered 3D cube on the top screen with the live HUD below" width="320">
 </p>
 
+The demo is a spinning cube you can push around with the D-pad and tumble with
+ABXY. Here's the layout, with the cube on the bottom screen:
+
 ```
         ┌────────────────────────────┐
         │ Bevy 3D on Nintendo DS      │
         │ t=  12s  fps=60  cube=bottom│   text console (sub engine)
-        │                            │   ← live HUD from the Time/Fps/input resources
+        │                            │
         │ D-pad: move (crosses screens)│
         │ ABXY: rotate the cube       │
         ├────────────────────────────┤
         │        ▟█▙                  │   3D engine (main engine + 3D core)
-        │       ▟███▙                 │   ← a Bevy entity: hardware-rendered cube
-        │        ▜█▛                  │     the D-pad moves, ABXY rotate
+        │       ▟███▙                 │   the cube lives here
+        │        ▜█▛                  │
         └────────────────────────────┘
 ```
 
-The 3D core is hard-wired to the DS **main** 2D engine; a single coupled bit
-(`POWER_SWAP_LCDS`) chooses which physical LCD the main engine drives, and the
-sub engine always takes the other. So the cube and the text console live on
-*opposite* screens, and a `Display3d` resource flips which is which. In the demo,
-walking the cube off the edge of one screen swaps the LCDs, so the cube reappears
-on the other glass and the HUD rides along to the screen the cube just left.
+One quirk worth calling out: the DS 3D core is wired to the *main* 2D engine,
+and a single hardware bit (`POWER_SWAP_LCDS`) picks which physical LCD that
+engine drives. The sub engine always gets the other screen. So the cube and the
+text HUD are always on opposite screens, and there's a `Display3d` resource that
+flips which is which. Walk the cube off the edge in the demo and it swaps the
+LCDs: the cube pops out on the other screen and the HUD slides over to where the
+cube just was.
 
 ## How it works
 
-Full Bevy (the `bevy` crate) depends on `wgpu`/`winit` and cannot run on the DS.
-But since Bevy 0.16 the engine's **core is `no_std`-capable**, so `bevy_nds`
-uses just those pieces and provides the platform layer itself. The key idea is
-to map DS hardware onto ordinary Bevy concepts so that game code never has to
-think about the hardware:
+The full `bevy` crate pulls in `wgpu` and `winit`, so it's a non-starter on the
+DS. But Bevy's core has been `no_std`-friendly since 0.16, so `bevy_nds`
+cherry-picks the ECS/App pieces and supplies the platform layer itself. The
+trick is to express DS hardware as ordinary Bevy concepts, so game code never
+touches the metal directly:
 
 | DS hardware              | `bevy_nds` exposes                                                    | Plugin              |
 | ------------------------ | -------------------------------------------------------------------- | ------------------- |
@@ -58,52 +62,54 @@ think about the hardware:
 | Tiled text background    | `Glyph` / `DsText` + `TilePos`, drawn by an extraction system        | `RenderPlugin`      |
 | 3D geometry engine       | `Transform3d` + `DsMesh` + a `Camera3d` resource (in `bevy_nds_3d`)  | `Ds3dPlugin`        |
 
-`DsPlugins` bundles them all; `bevy_nds::run(app)` installs the runner and owns
-the frame loop (`swiWaitForVBlank` → `app.update()`).
+`DsPlugins` bundles all of it, and `bevy_nds::run(app)` installs the runner that
+owns the frame loop (`swiWaitForVBlank` → `app.update()`).
 
 ### Rendering model
 
-Desktop Bevy extracts entities to the GPU each frame; `bevy_nds` keeps the same
-*shape* but the "GPU" is the DS text console (a tiled background) and the draw
-call is libnds `printf`. A drawable is any entity with a `TilePos` + `DsScreen`
-and either a `Glyph` (a single character — the DS analogue of a text sprite) or
-a `DsText` (a run of text).
+Desktop Bevy extracts entities to the GPU every frame. `bevy_nds` keeps that
+shape but the "GPU" is the DS text console (a tiled background) and the draw call
+is a libnds `printf`. A drawable is any entity with a `TilePos` and a `DsScreen`,
+plus either a `Glyph` (one character, the DS version of a text sprite) or a
+`DsText` (a string).
 
-To avoid flicker, the renderer is **double-buffered at the grid level**: each
-screen keeps a statically-sized `front` buffer (mirroring the live tilemap) and
-a `back` buffer (composed fresh each frame). The render system stamps every
-drawable into `back`, then writes *only the cells that differ* to the hardware
-tilemap and copies them into `front`. The display is never blanked — so there is
-no flicker — and a typical frame only touches a handful of tiles. This avoids
-both the visible blank of a full `consoleClear()` and any per-frame heap churn.
+The renderer is double-buffered at the grid level to keep things from flickering.
+Each screen keeps a `front` buffer that mirrors what's actually on the tilemap
+and a `back` buffer that gets composed from scratch each frame. The render system
+stamps every drawable into `back`, then writes only the cells that changed to the
+hardware and copies them into `front`. The screen is never blanked, so no
+flicker, and most frames only touch a handful of tiles. That sidesteps both the
+visible flash of a full `consoleClear()` and any per-frame allocation.
 
-`bevy_text` (cosmic-text font rasterisation) is far too heavy for the DS, so we
-shed it and rebuild a lightweight, `no_std` text concept on the hardware tile
-engine instead.
+`bevy_text` (cosmic-text font rasterisation) is way too heavy for the DS, so it's
+dropped entirely and replaced with this small `no_std` text layer on the tile
+engine.
 
-This is the same overall approach as
-[`bevy_mod_gba`](https://github.com/bushrat011899/bevy_mod_gba) takes for the
+This is roughly the same playbook
+[`bevy_mod_gba`](https://github.com/bushrat011899/bevy_mod_gba) uses for the
 Game Boy Advance.
 
 ### Bare-metal runtime
 
-`bevy_nds` also provides the pieces a bare-metal Rust program needs, so the game
+`bevy_nds` also carries the bits a bare-metal Rust program needs so the game
 doesn't have to (`crates/bevy_nds/src/runtime.rs`):
 
-- a `#[global_allocator]` backed by newlib's heap (set up by the BlocksDS crt0),
+- a `#[global_allocator]` on top of newlib's heap (set up by the BlocksDS crt0),
 - a `#[panic_handler]`, and
-- a `critical-section` implementation that toggles the DS interrupt-enable
-  register — this is what Bevy's atomics (`portable-atomic`) build upon.
+- a `critical-section` impl that toggles the DS interrupt-enable register, which
+  is what Bevy's atomics (`portable-atomic`) sit on.
 
 ## Prerequisites
 
 - [Nix](https://nixos.org/) with flakes enabled.
-- That's it — the dev shell provides the Rust nightly toolchain, the BlocksDS
-  SDK, `ndstool`, the melonDS and desmume emulators, and the preview tooling.
 
-The BlocksDS SDK is provided as a proper Nix derivation (no `buildFHSEnv`) via
+That's the whole list. The dev shell brings the Rust nightly toolchain, the
+BlocksDS SDK, `ndstool`, the melonDS and desmume emulators, and the preview
+tooling.
+
+BlocksDS comes in as a proper Nix derivation (no `buildFHSEnv`) via
 [`pgattic/blocksds-nix`](https://github.com/pgattic/blocksds-nix), which patches
-the official BlocksDS toolchain into the Nix store and exports `$BLOCKSDS` /
+the official toolchain into the Nix store and exports `$BLOCKSDS` /
 `$WONDERFUL_TOOLCHAIN`.
 
 ## Quick start
@@ -117,7 +123,7 @@ just run             # build + package + launch melonDS
 just preview         # build + package + headless desmume screenshot -> preview.png
 ```
 
-Release build (smaller, faster): append `release`, e.g. `just run release`.
+Want the small, fast build? Tack `release` onto the end, e.g. `just run release`.
 
 ### Tasks
 
@@ -135,21 +141,21 @@ Release build (smaller, faster): append `release`, e.g. `just run release`.
 
 ### Testing
 
-`bevy_nds` carries unit tests for its hardware-independent logic — the
-double-buffered render diffing, the timer-tick→nanoseconds conversion, the FPS
-smoothing and the button-mask mapping. They run on the host, not the DS:
+The hardware-independent logic in `bevy_nds` has unit tests: the render diffing,
+the timer-tick→nanoseconds math, the FPS smoothing, the button-mask mapping.
+They run on your host machine, not the DS:
 
 ```sh
 just test          # run all bevy_nds unit tests
 just test render   # run only tests whose name matches "render"
 ```
 
-The crate is `no_std` only when *not* under `cfg(test)`, so the test build links
-against the host `std` and the standard test harness. `just test` builds for the
-host triple and overrides the project's `build-std`/panic settings for that one
-command (see the `Justfile` for why); the first run compiles `std` and is slow,
-later runs are fast. Hardware-touching code (FFI calls) is kept out of the
-tested functions, so nothing needs the DS or an emulator.
+The crate is only `no_std` when it's not under `cfg(test)`, so the test build
+gets the host `std` and the normal test harness. `just test` compiles for the
+host triple and overrides the project's `build-std`/panic settings just for that
+run (the `Justfile` explains why). The first run builds `std` and is slow; after
+that it's quick. Anything that calls into the hardware is kept out of the tested
+functions, so you never need a DS or an emulator to run them.
 
 ## Project layout
 
@@ -176,8 +182,8 @@ crates/bevy_nds/                the reusable Bevy <-> Nintendo DS library
 
 ## Writing a game
 
-A game is just a `no_std` binary that adds `DsPlugins`, registers its own
-systems, and calls `bevy_nds::run`:
+A game is a `no_std` binary that adds `DsPlugins`, registers its systems, and
+calls `bevy_nds::run`:
 
 ```rust
 #![no_std]
@@ -198,38 +204,39 @@ pub extern "C" fn main() -> core::ffi::c_int {
 }
 ```
 
-See `src/main.rs` for the full example: a hardware 3D cube the D-pad walks
-between both screens (`Display3d` LCD swap), ABXY rotation, and a live HUD.
+`src/main.rs` is the full example: the 3D cube, D-pad movement across both
+screens (the `Display3d` LCD swap), ABXY rotation, and the live HUD.
 
 ## Build details
 
+A few things that are easy to trip over if you go poking at the build:
+
 - **Target.** `armv5te-nintendo-ds.json` describes the ARM946E-S core (no std,
-  `panic = "abort"`, soft-float). Because it is Tier 3 we build `core`/`alloc`
-  from source with `-Z build-std` (configured in `.cargo/config.toml`).
-- **Linking.** `build.rs` reads `$BLOCKSDS` (set by the dev shell) and passes the
-  ARM9 crt0/linker-script via `-specs=…/ds_arm9.specs`, plus
-  `-lnds9 -lc -lgcc`. `libgcc` is required because the BlocksDS specs alias
-  `__sync_synchronize` to a helper that lives there.
+  `panic = "abort"`, soft-float). It's Tier 3, so `core`/`alloc` get built from
+  source with `-Z build-std` (set up in `.cargo/config.toml`).
+- **Linking.** `build.rs` reads `$BLOCKSDS` (the dev shell sets it) and passes
+  the ARM9 crt0/linker script via `-specs=…/ds_arm9.specs`, plus
+  `-lnds9 -lc -lgcc`. `libgcc` is there because the BlocksDS specs alias
+  `__sync_synchronize` to a helper that lives in it.
 - **Atomics.** The DS has no atomic compare-and-swap, so `portable-atomic`
-  (pulled in by Bevy) is backed by the `critical-section` implementation in
-  `crates/bevy_nds/src/runtime.rs`, which disables interrupts for the duration
-  of the section.
-- **Packaging.** `ndstool` combines our ARM9 ELF with a stock BlocksDS ARM7 core
-  (`arm7_minimal.elf`) into the final `.nds`.
-- **Performance.** Per Bevy's guidance, the dev profile leaves our own crates
-  unoptimized (fast rebuilds) but optimizes all *dependencies*
-  (`[profile.dev.package."*"] opt-level = 3`), so even the debug ROM runs the
-  ECS at a locked 60 fps on the 33 MHz ARM9. For the smallest/fastest ROM, build
-  `release` (`just run release`).
+  (which Bevy drags in) is backed by the `critical-section` impl in
+  `crates/bevy_nds/src/runtime.rs`, which just disables interrupts around the
+  section.
+- **Packaging.** `ndstool` stitches our ARM9 ELF together with a stock BlocksDS
+  ARM7 core (`arm7_minimal.elf`) into the final `.nds`.
+- **Performance.** Following Bevy's own advice, the dev profile leaves our crates
+  unoptimized for fast rebuilds but cranks every dependency to
+  `opt-level = 3` (`[profile.dev.package."*"]`), so even the debug ROM holds a
+  steady 60 fps on the 33 MHz ARM9. Build `release` for the smallest, fastest ROM.
 
 ## Limitations / next steps
 
-- Rendering uses the libnds **text console**. True sprite/tile graphics would
-  use libnds OAM/backgrounds (and `grit` for asset conversion, already in the
-  shell) behind the same `RenderPlugin` extraction model.
-- No audio (maxmod) or Wi-Fi (dswifi) — swap in the matching ARM7 core and link
-  `-lmm9` / `-ldswifi9` to enable them.
-- Keep entity counts small: the DS has ~4 MB of RAM.
+- Text rendering goes through the libnds **text console**. Real sprite/tile
+  graphics would use libnds OAM/backgrounds (and `grit` for asset conversion,
+  already in the shell) behind the same `RenderPlugin` extraction model.
+- No audio (maxmod) or Wi-Fi (dswifi) yet. Swap in the matching ARM7 core and
+  link `-lmm9` / `-ldswifi9` to turn them on.
+- Keep entity counts modest. The DS only has ~4 MB of RAM.
 
 ## References
 
