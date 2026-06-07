@@ -20,30 +20,18 @@ plus a tech demo. There are three crates:
   <img src="docs/cube-demo.png" alt="The hardware-rendered 3D cube on the top screen with the live HUD below" width="320">
 </p>
 
-The demo is a spinning cube you can push around with the D-pad and tumble with
-ABXY. Here's the layout, with the cube on the bottom screen:
+The demo is a spinning cube on one screen with a live HUD on the other. The
+D-pad pushes the cube around, and ABXY tumble it so you can see the hardware
+shading each face. Run it off the edge of the screen and it crosses to the other
+one.
 
-```
-        ┌────────────────────────────┐
-        │ Bevy 3D on Nintendo DS      │
-        │ t=  12s  fps=60  cube=bottom│   text console (sub engine)
-        │                            │
-        │ D-pad: move (crosses screens)│
-        │ ABXY: rotate the cube       │
-        ├────────────────────────────┤
-        │        ▟█▙                  │   3D engine (main engine + 3D core)
-        │       ▟███▙                 │   the cube lives here
-        │        ▜█▛                  │
-        └────────────────────────────┘
-```
-
-One quirk worth calling out: the DS 3D core is wired to the *main* 2D engine,
-and a single hardware bit (`POWER_SWAP_LCDS`) picks which physical LCD that
-engine drives. The sub engine always gets the other screen. So the cube and the
-text HUD are always on opposite screens, and there's a `Display3d` resource that
-flips which is which. Walk the cube off the edge in the demo and it swaps the
-LCDs: the cube pops out on the other screen and the HUD slides over to where the
-cube just was.
+That screen-crossing is a fun side effect of how the DS is wired: the 3D core is
+bolted to the *main* 2D engine, and a single hardware bit (`POWER_SWAP_LCDS`)
+decides which physical LCD that engine drives. The sub engine always gets the
+other screen. So the cube and the text HUD are always on opposite screens, and a
+`Display3d` resource flips which is which. Crossing the edge just toggles that
+bit, so the cube pops out on the other screen and the HUD slides over to where
+the cube used to be.
 
 ## How it works
 
