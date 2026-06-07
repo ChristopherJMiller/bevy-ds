@@ -45,6 +45,7 @@ dependencies = [
  "bevy_ecs",
  "bevy_input",
  "bevy_nds",
+ "bevy_nds_3d",
  "bevy_time",
 ]
 
@@ -170,6 +171,16 @@ dependencies = [
  "bevy_input",
  "bevy_time",
  "critical-section",
+]
+
+[[package]]
+name = "bevy_nds_3d"
+version = "0.1.0"
+dependencies = [
+ "bevy_app",
+ "bevy_ecs",
+ "bevy_math",
+ "bevy_nds",
 ]
 
 [[package]]

@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/bevy_nds"]
+members = ["crates/bevy_nds", "crates/bevy_nds_3d"]
 resolver = "2"
 
 [package]
@@ -13,6 +13,7 @@ edition = "2024"
 
 [dependencies]
 bevy_nds = { path = "crates/bevy_nds" }
+bevy_nds_3d = { path = "crates/bevy_nds_3d" }
 
 bevy_app = { version = "0.16", default-features = false, features = [
   "critical-section",

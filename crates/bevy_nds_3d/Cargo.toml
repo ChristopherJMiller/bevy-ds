@@ -1,0 +1,25 @@
+[package]
+name = "bevy_nds_3d"
+version = "0.1.0"
+edition = "2024"
+description = "Hardware-accelerated 3D for bevy_nds, driving the Nintendo DS 3D engine (no_std)."
+
+# An additive rendering backend for `bevy_nds`. It drives the DS *hardware* 3D
+# geometry engine (libnds GL-style API) and exposes it as ordinary Bevy
+# components/resources, so games describe a scene and the hardware draws it. It
+# depends on `bevy_nds` for the platform layer (runtime, video bring-up, the
+# vblank frame loop) and adds no allocator / panic handler of its own.
+
+[lib]
+
+[dependencies]
+bevy_nds = { path = "../bevy_nds" }
+
+bevy_app = { version = "0.16", default-features = false, features = [
+  "critical-section",
+] }
+bevy_ecs = { version = "0.16", default-features = false, features = [
+  "critical-section",
+] }
+# glam (via bevy_math) for friendly f32 Vec3 maths; `libm` keeps it no_std.
+bevy_math = { version = "0.16", default-features = false, features = ["libm"] }
