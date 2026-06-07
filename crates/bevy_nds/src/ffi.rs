@@ -28,7 +28,9 @@ pub const KEY_Y: u32 = 1 << 11;
 // libnds background type / size enums (see <nds/arm9/background.h>). These are
 // passed to `consoleInit` to describe the tiled text layer.
 pub const BG_TYPE_TEXT_4BPP: c_int = 1; // BgType_Text4bpp
-pub const BG_SIZE_T_256X256: c_int = (0 << 14) | (1 << 16); // BgSize_T_256x256
+// Written as in the libnds header: BgSize_T_256x256 = (0 << 14) | (1 << 16).
+#[allow(clippy::identity_op)]
+pub const BG_SIZE_T_256X256: c_int = (0 << 14) | (1 << 16);
 
 // Memory-mapped display/VRAM registers (see <nds/arm9/video.h>). We poke these
 // directly to bring up the *main* engine for the top screen, since libnds only

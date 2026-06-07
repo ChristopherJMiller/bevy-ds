@@ -54,12 +54,7 @@ fn setup(mut commands: Commands) {
     commands.spawn((DsScreen::Top, TilePos::new(4, 4), Hud, DsText::new("")));
 
     // Bottom screen: the player marker and a hint.
-    commands.spawn((
-        Player,
-        DsScreen::Bottom,
-        TilePos::new(16, 12),
-        Glyph(b'@'),
-    ));
+    commands.spawn((Player, DsScreen::Bottom, TilePos::new(16, 12), Glyph(b'@')));
     commands.spawn((
         DsScreen::Bottom,
         TilePos::new(6, 22),

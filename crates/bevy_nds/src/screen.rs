@@ -64,13 +64,13 @@ fn init_screens(mut commands: Commands) {
         core::ptr::write_volatile(ffi::VRAM_A_CR, ffi::VRAM_ENABLE | ffi::VRAM_A_MAIN_BG);
         let top = ffi::consoleInit(
             &raw mut TOP_CONSOLE,
-            0,                       // background layer 0
-            ffi::BG_TYPE_TEXT_4BPP,  // 4bpp tiled text
-            ffi::BG_SIZE_T_256X256,  // 256x256 text background
-            22,                      // map base (matches the demo console)
-            3,                       // tile base
-            true,                    // main_display -> top screen
-            true,                    // load the default font
+            0,                      // background layer 0
+            ffi::BG_TYPE_TEXT_4BPP, // 4bpp tiled text
+            ffi::BG_SIZE_T_256X256, // 256x256 text background
+            22,                     // map base (matches the demo console)
+            3,                      // tile base
+            true,                   // main_display -> top screen
+            true,                   // load the default font
         );
         (top, bottom)
     };

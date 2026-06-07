@@ -23,7 +23,6 @@ pub struct TimePlugin;
 
 impl Plugin for TimePlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<Time>()
-            .add_systems(First, advance_time);
+        app.init_resource::<Time>().add_systems(First, advance_time);
     }
 }
