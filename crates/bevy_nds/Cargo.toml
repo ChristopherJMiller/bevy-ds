@@ -1,0 +1,33 @@
+[package]
+name = "bevy_nds"
+version = "0.1.0"
+edition = "2024"
+description = "A small Bevy integration layer for Nintendo DS homebrew (no_std, libnds)."
+
+# This crate is the reusable "engine" layer: it wires Bevy's no_std ECS/App core
+# to the DS hardware through libnds and exposes everything as Bevy plugins,
+# components and resources. Games depend on this crate and stay free of any FFI.
+
+[lib]
+# An rlib that is statically linked into the (no_std) game binary. The crate
+# provides the program's global allocator, panic handler and critical-section
+# implementation, so it must be present exactly once in the final binary.
+
+[dependencies]
+bevy_app = { version = "0.16", default-features = false, features = [
+  "critical-section",
+] }
+bevy_ecs = { version = "0.16", default-features = false, features = [
+  "critical-section",
+] }
+bevy_input = { version = "0.16", default-features = false, features = [
+  "critical-section",
+  "libm",
+] }
+bevy_time = { version = "0.16", default-features = false, features = [
+  "critical-section",
+] }
+
+# critical-section implementation hook (single-core: toggle the DS interrupt
+# master enable register). `restore-state-bool` matches our acquire/release.
+critical-section = { version = "1.1", features = ["restore-state-bool"] }
