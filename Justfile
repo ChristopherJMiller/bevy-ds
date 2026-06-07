@@ -22,6 +22,25 @@ build-release:
 check:
     cargo check
 
+# Run the host-side unit tests for the `bevy_nds` crate.
+#
+# The crate normally builds for the DS (a no_std target with no test harness),
+# so tests can't run there. Instead we build for the host triple and let the
+# standard test harness run the pure-logic tests. `bevy_nds` is `no_std` only
+# when not under `cfg(test)`, so this links against the host `std`.
+#
+# We override the project's `build-std`/panic config just for this command:
+# building full `std` from source keeps a single `core` (avoiding a duplicate
+# lang-item clash) and `panic = "unwind"` matches the test harness. The first
+# run compiles `std`, so it is slow; later runs are fast.
+#
+# Usage: `just test` (all) or `just test <filter>` (e.g. `just test render`).
+test *args:
+    cargo test -p bevy_nds --target "$(rustc -vV | sed -n 's/^host: //p')" \
+        --config 'unstable.build-std=["std","panic_unwind","proc_macro"]' \
+        --config 'profile.dev.panic="unwind"' \
+        {{args}}
+
 # Format the Rust sources.
 fmt:
     cargo fmt

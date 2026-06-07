@@ -75,3 +75,39 @@ impl Plugin for InputPlugin {
             .add_systems(PreUpdate, read_keys);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_button_is_mapped_exactly_once() {
+        // All 12 variants appear, with no duplicate buttons.
+        assert_eq!(DsButton::ALL.len(), 12);
+        for i in 0..DsButton::ALL.len() {
+            for j in (i + 1)..DsButton::ALL.len() {
+                assert_ne!(DsButton::ALL[i].0, DsButton::ALL[j].0);
+            }
+        }
+    }
+
+    #[test]
+    fn key_masks_are_single_distinct_bits() {
+        let mut seen = 0u32;
+        for (_, mask) in DsButton::ALL {
+            assert!(mask != 0, "mask must be non-zero");
+            assert_eq!(mask & (mask - 1), 0, "mask must be a single bit");
+            assert_eq!(seen & mask, 0, "masks must be disjoint");
+            seen |= mask;
+        }
+    }
+
+    #[test]
+    fn directional_masks_match_libnds() {
+        let mask = |b: DsButton| DsButton::ALL.iter().find(|(x, _)| *x == b).unwrap().1;
+        assert_eq!(mask(DsButton::Left), ffi::KEY_LEFT);
+        assert_eq!(mask(DsButton::Right), ffi::KEY_RIGHT);
+        assert_eq!(mask(DsButton::Up), ffi::KEY_UP);
+        assert_eq!(mask(DsButton::Down), ffi::KEY_DOWN);
+    }
+}

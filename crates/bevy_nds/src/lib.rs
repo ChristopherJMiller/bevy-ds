@@ -30,7 +30,10 @@
 //! }
 //! ```
 
-#![no_std]
+// The crate is `no_std` on the Nintendo DS. For host unit tests (`cargo test`)
+// we let it link against `std` so the standard test harness, which needs `std`,
+// can run our pure-logic tests; the bare-metal runtime is gated out under test.
+#![cfg_attr(not(test), no_std)]
 
 extern crate alloc;
 
@@ -39,6 +42,10 @@ mod ffi;
 mod input;
 mod render;
 mod runner;
+// The bare-metal runtime (global allocator, panic handler, critical-section
+// impl) must not exist when building the host test binary — `std` provides its
+// own, and duplicates fail to compile/link.
+#[cfg(not(test))]
 mod runtime;
 mod screen;
 mod time;

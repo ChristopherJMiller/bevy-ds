@@ -15,6 +15,7 @@ The `Justfile` is the entry point (run `just --list`):
 
 - `just build` / `just build-release` — compile the ARM9 ELF.
 - `just check` — `cargo check` (fast feedback loop; no ROM).
+- `just test [filter]` — run the `bevy_nds` host-side unit tests.
 - `just fmt` — `cargo fmt`.
 - `just rom [profile]` — package the ELF into `bevy-ds.nds` with `ndstool`.
 - `just run [profile]` — build + package + launch melonDS.
@@ -22,10 +23,24 @@ The `Justfile` is the entry point (run `just --list`):
   `preview.png` (CI-friendly; override with `OUT=`, `WAIT=`, `DISP=`).
 - `profile` defaults to `debug`; pass `release` for the small/fast ROM.
 
-There is **no test suite** and **no separate lint step** — `clippy` is installed
-(`rust-toolchain.toml`) but not wired into a task; run `cargo clippy` manually if
-needed. "Verifying a change" means `just check` (or `just build`) succeeds, then
-optionally `just preview` to confirm what renders.
+### Testing
+
+Hardware-independent logic in `bevy_nds` is unit-tested **on the host**, since
+the DS target is `no_std` with no test harness. Run `just test` (or
+`just test <filter>` for a single test). Key mechanics, which you must preserve
+when adding tests:
+
+- The crate is `#![cfg_attr(not(test), no_std)]`; under `cfg(test)` it links
+  host `std`. The bare-metal `runtime` module (allocator / panic handler /
+  critical-section) is `#[cfg(not(test))]` so it doesn't clash with `std`.
+- `just test` builds for the host triple and overrides `build-std` (full `std`
+  from source, to avoid a duplicate-`core` lang-item clash) and `panic` — it
+  does **not** use the default DS target. Plain `cargo test` will *not* work.
+- Tests cover pure logic only — never call FFI. When adding hardware code, split
+  the testable computation out of the FFI call (see `Grid::diff_runs` vs
+  `Grid::flush` in `render.rs`) and test the pure half.
+
+`clippy` is installed but not wired into a task; run `cargo clippy` manually.
 
 ## Architecture
 

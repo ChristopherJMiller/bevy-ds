@@ -112,8 +112,27 @@ Release build (smaller, faster): append `release`, e.g. `just run release`.
 | `just run [profile]`     | Build, package, and run in **melonDS** (interactive).      |
 | `just preview [profile]` | Build, package, boot in **desmume** headlessly and save `preview.png`. Override with `OUT=`, `WAIT=`, `DISP=`. |
 | `just check`             | `cargo check`.                                             |
+| `just test [filter]`     | Run the `bevy_nds` host-side unit tests (builds for the host triple). |
 | `just fmt`               | `cargo fmt`.                                               |
 | `just clean`             | Remove build artifacts and the ROM.                        |
+
+### Testing
+
+`bevy_nds` carries unit tests for its hardware-independent logic — the
+double-buffered render diffing, the timer-tick→nanoseconds conversion, the FPS
+smoothing and the button-mask mapping. They run on the host, not the DS:
+
+```sh
+just test          # run all bevy_nds unit tests
+just test render   # run only tests whose name matches "render"
+```
+
+The crate is `no_std` only when *not* under `cfg(test)`, so the test build links
+against the host `std` and the standard test harness. `just test` builds for the
+host triple and overrides the project's `build-std`/panic settings for that one
+command (see the `Justfile` for why); the first run compiles `std` and is slow,
+later runs are fast. Hardware-touching code (FFI calls) is kept out of the
+tested functions, so nothing needs the DS or an emulator.
 
 ## Project layout
 

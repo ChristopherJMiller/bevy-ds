@@ -100,15 +100,12 @@ impl Grid {
         }
     }
 
-    /// Write every cell that changed since last frame to `console`, batching
-    /// consecutive changes on a row into a single positioned print, then copy
-    /// `back` into `front`.
-    ///
-    /// # Safety
-    /// `console` must be a valid libnds console pointer.
-    unsafe fn flush(&mut self, console: *mut ffi::PrintConsole) {
-        unsafe { ffi::consoleSelect(console) };
-
+    /// Diff `back` against `front`, emitting each changed run and advancing
+    /// `front` to match. For every maximal run of cells that changed on a single
+    /// row, `emit(row, col, &bytes)` is called with the run's new bytes (0-based
+    /// grid coordinates). This is the pure core of [`flush`] — it performs no
+    /// I/O — which keeps the anti-flicker diff logic unit-testable.
+    fn diff_runs(&mut self, mut emit: impl FnMut(usize, usize, &[u8])) {
         let mut i = 0;
         while i < CELLS {
             if self.back[i] == self.front[i] {
@@ -119,7 +116,7 @@ impl Grid {
             // Start of a changed run; gather it (bounded to the current row).
             let row = i / COLS;
             let col = i % COLS;
-            let mut run = [0u8; COLS + 1];
+            let mut run = [0u8; COLS];
             let mut len = 0;
             while i < CELLS && i / COLS == row && self.back[i] != self.front[i] {
                 run[len] = self.back[i];
@@ -127,7 +124,25 @@ impl Grid {
                 len += 1;
                 i += 1;
             }
-            run[len] = 0; // NUL-terminate for %s.
+
+            emit(row, col, &run[..len]);
+        }
+    }
+
+    /// Write every cell that changed since last frame to `console`, batching
+    /// consecutive changes on a row into a single positioned print, then copy
+    /// `back` into `front`.
+    ///
+    /// # Safety
+    /// `console` must be a valid libnds console pointer.
+    unsafe fn flush(&mut self, console: *mut ffi::PrintConsole) {
+        unsafe { ffi::consoleSelect(console) };
+
+        self.diff_runs(|row, col, bytes| {
+            // Copy into a NUL-terminated buffer for `%s`.
+            let mut run = [0u8; COLS + 1];
+            run[..bytes.len()].copy_from_slice(bytes);
+            run[bytes.len()] = 0;
 
             // ANSI cursor move to 1-based (row, col), then print the run.
             unsafe {
@@ -138,7 +153,7 @@ impl Grid {
                     run.as_ptr() as *const c_char,
                 );
             }
-        }
+        });
     }
 }
 
@@ -206,5 +221,97 @@ impl Plugin for RenderPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup_buffers)
             .add_systems(Last, render);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::vec::Vec;
+
+    /// Collect the changed runs a flush would emit, as (row, col, bytes).
+    fn runs(grid: &mut Grid) -> Vec<(usize, usize, Vec<u8>)> {
+        let mut out = Vec::new();
+        grid.diff_runs(|row, col, bytes| out.push((row, col, bytes.to_vec())));
+        out
+    }
+
+    #[test]
+    fn put_writes_on_grid_cell() {
+        let mut g = Grid::new();
+        g.put(3, 2, b'A');
+        assert_eq!(g.back[2 * COLS + 3], b'A');
+    }
+
+    #[test]
+    fn put_ignores_off_grid_coordinates() {
+        let mut g = Grid::new();
+        // Negative, and past each edge — none should write or panic.
+        g.put(-1, 0, b'X');
+        g.put(0, -1, b'X');
+        g.put(COLS as i16, 0, b'X');
+        g.put(0, ROWS as i16, b'X');
+        assert!(g.back.iter().all(|&c| c == BLANK));
+    }
+
+    #[test]
+    fn put_str_clips_at_row_end() {
+        let mut g = Grid::new();
+        // Starts two cells before the right edge: only "AB" should land.
+        g.put_str(COLS as i16 - 2, 1, b"ABCD");
+        assert_eq!(g.back[1 * COLS + (COLS - 2)], b'A');
+        assert_eq!(g.back[1 * COLS + (COLS - 1)], b'B');
+        // It must not wrap onto the next row.
+        assert!(g.back[2 * COLS..].iter().all(|&c| c == BLANK));
+    }
+
+    #[test]
+    fn diff_emits_one_run_for_contiguous_changes() {
+        let mut g = Grid::new();
+        g.put_str(4, 2, b"Hello");
+        assert_eq!(runs(&mut g), [(2, 4, b"Hello".to_vec())]);
+    }
+
+    #[test]
+    fn diff_splits_runs_on_unchanged_cells() {
+        let mut g = Grid::new();
+        g.put(0, 0, b'A');
+        g.put(2, 0, b'B'); // cell 1 stays blank, breaking the run
+        assert_eq!(runs(&mut g), [(0, 0, b"A".to_vec()), (0, 2, b"B".to_vec())]);
+    }
+
+    #[test]
+    fn diff_does_not_merge_across_rows() {
+        let mut g = Grid::new();
+        // Fill the whole first row and the first cell of the second.
+        for x in 0..COLS as i16 {
+            g.put(x, 0, b'#');
+        }
+        g.put(0, 1, b'#');
+        let r = runs(&mut g);
+        assert_eq!(r.len(), 2);
+        assert_eq!((r[0].0, r[0].1, r[0].2.len()), (0, 0, COLS));
+        assert_eq!(r[1], (1, 0, b"#".to_vec()));
+    }
+
+    #[test]
+    fn flush_advances_front_and_is_idempotent() {
+        let mut g = Grid::new();
+        g.put_str(1, 1, b"hi");
+        let first = runs(&mut g);
+        assert_eq!(first, [(1, 1, b"hi".to_vec())]);
+        // front now mirrors back; a second diff with no recomposition is empty.
+        assert!(runs(&mut g).is_empty());
+        // front must actually hold the drawn bytes.
+        assert_eq!(&g.front[1 * COLS + 1..1 * COLS + 3], b"hi");
+    }
+
+    #[test]
+    fn diff_detects_a_cleared_cell() {
+        let mut g = Grid::new();
+        g.put(5, 5, b'@');
+        let _ = runs(&mut g); // commit '@' into front
+        g.clear_back(); // entity moved away: cell goes back to blank
+        assert_eq!(runs(&mut g), [(5, 5, alloc::vec![BLANK])]);
     }
 }
