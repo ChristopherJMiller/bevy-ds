@@ -329,27 +329,26 @@ fn update_pick_hud(
     }
 }
 
-/// Selecting a teapot gives it a visible nudge and fires a click SFX, proving
-/// the pick is the real entity. Selection is detected as a *rising edge* of the
-/// hardware [`TouchPick`] (the pen landing on a teapot, or sliding onto a
-/// different one). This is deliberately not gated on `touches.any_just_pressed()`:
-/// picking runs in `Last`, one phase after this `Update` system, so on the
-/// just-pressed frame `pick.entity` is still the previous frame's value and the
-/// two conditions never coincide. Edge-detecting the pick instead is robust to
-/// that ordering.
+/// Tapping a teapot selects it: the tapped teapot tumbles and a click SFX plays.
+///
+/// Selection is gated on the [`Gesture::Tap`] event (a quick press-and-release in
+/// place), not merely the pen touching a teapot — so dragging the pen across the
+/// teapots, or swiping, doesn't trigger it. The tap is emitted on pen-up, which
+/// reaches this `Update` system before [`TouchPick`] is cleared in `Last`, so
+/// `pick.entity` still holds whatever teapot was under the pen during the press.
 fn poke_picked(
     pick: Res<TouchPick>,
-    mut last: Local<Option<Entity>>,
+    mut gestures: EventReader<GestureEvent>,
     mut sfx: EventWriter<PlaySfx>,
     mut query: Query<&mut Transform3d>,
 ) {
-    let current = pick.entity;
-    let newly_selected = match current {
-        Some(e) if *last != Some(e) => Some(e),
-        _ => None,
-    };
-    *last = current;
-    if let Some(entity) = newly_selected
+    let tapped = gestures
+        .read()
+        .any(|GestureEvent(g)| matches!(g, Gesture::Tap(_)));
+    if !tapped {
+        return;
+    }
+    if let Some(entity) = pick.entity
         && let Ok(mut transform) = query.get_mut(entity)
     {
         transform.rotation.y += core::f32::consts::FRAC_PI_2;
