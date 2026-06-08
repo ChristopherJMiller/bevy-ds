@@ -103,13 +103,16 @@ impl Vertex {
     }
 }
 
-/// Pre-packed Geometry Engine command words for a static lit mesh, computed at
-/// build time by `include_obj!`. The render loop streams these straight to the
-/// hardware with no per-frame float maths (see [`ffi::gl::stream_lit`]), which is
-/// what keeps a ~650-triangle model at frame rate on the 33 MHz ARM9.
+/// A baked libnds **display list** for a static lit mesh, produced at build time
+/// by `include_obj!`. The render loop hands it to the GPU with a single
+/// `glCallList` (asynchronous DMA), so the 33 MHz ARM9 does no per-frame
+/// fixed-point or normal maths — which is what keeps a ~650-triangle model at
+/// frame rate.
 #[derive(Clone)]
 pub struct BakedMesh {
-    /// Flat command words, three per vertex: `[normal, vertex16-xy, vertex16-z]`.
+    /// The display list: a leading body-length word, then packed Geometry Engine
+    /// commands (begin, per-vertex normal + vertex16, end). Consumed by
+    /// [`ffi::gl::call_list`].
     pub words: Cow<'static, [u32]>,
     /// Local-space axis-aligned bounds (`[min, max]`), for frustum culling.
     pub aabb: [Vec3; 2],
@@ -149,10 +152,11 @@ impl DsMesh {
         }
     }
 
-    /// Build a hardware-lit mesh from a pre-packed `&'static` command stream and
-    /// its local-space bounds. This is the form `include_obj!` emits: all the
-    /// fixed-point/normal packing happens at build time, so rendering is just
-    /// MMIO writes. `words` must be three per vertex (see [`BakedMesh`]).
+    /// Build a hardware-lit mesh from a baked `&'static` display list and its
+    /// local-space bounds. This is the form `include_obj!` emits: all the
+    /// fixed-point/normal packing and command encoding happen at build time, so
+    /// rendering is a single `glCallList`. `words` must be a libnds display list
+    /// (see [`BakedMesh`]).
     pub const fn from_baked(words: &'static [u32], aabb_min: [f32; 3], aabb_max: [f32; 3]) -> Self {
         Self {
             tris: Cow::Borrowed(&[]),
@@ -482,11 +486,12 @@ fn render_3d(
                 );
                 gl::poly_fmt(ffi::poly_alpha(31) | ffi::POLY_CULL_BACK | light_mask);
 
-                gl::begin(ffi::GL_TRIANGLES);
                 if let Some(baked) = &mesh.baked {
-                    // Fast path: stream pre-packed command words, no float maths.
-                    gl::stream_lit(&baked.words);
+                    // Fast path: hand the whole display list to the GPU via DMA
+                    // (it carries its own begin/end), no per-vertex CPU work.
+                    gl::call_list(&baked.words);
                 } else {
+                    gl::begin(ffi::GL_TRIANGLES);
                     for tri in mesh.tris.iter() {
                         for v in tri {
                             // Normals are expected unit length (baked meshes pack
@@ -496,8 +501,8 @@ fn render_3d(
                             gl::vertex_v16(to_v16(v.pos.x), to_v16(v.pos.y), to_v16(v.pos.z));
                         }
                     }
+                    gl::end();
                 }
-                gl::end();
             } else {
                 gl::poly_fmt(ffi::poly_alpha(31) | ffi::POLY_CULL_NONE);
 

@@ -252,29 +252,14 @@ fn normalize(v: [f32; 3]) -> [f32; 3] {
 }
 
 /// Emit the `DsMesh` expression. The geometry is **pre-packed at build time**
-/// into the exact Geometry Engine command words the hardware consumes (three per
-/// vertex: normal, vertex16-xy, vertex16-z), so the DS runtime does no per-frame
-/// fixed-point or normal maths — it just streams these `u32`s to MMIO. A leading
-/// `include_bytes!` ties the build to the source file so edits to the model
-/// trigger a recompile (proc-macros don't track file reads on their own).
+/// into a libnds *display list* (see [`display_list`]): a self-contained block
+/// of packed Geometry Engine commands that the DS draws in one DMA burst via
+/// `glCallList`, with no per-frame fixed-point or normal maths on the 33 MHz
+/// ARM9. A leading `include_bytes!` ties the build to the source file so edits
+/// to the model trigger a recompile (proc-macros don't track file reads on their
+/// own).
 fn emit(tris: &[Tri], full: &std::path::Path) -> String {
-    // Pack every vertex and accumulate the local-space bounding box.
-    let mut words: Vec<u32> = Vec::with_capacity(tris.len() * 9);
-    let mut min = [f32::INFINITY; 3];
-    let mut max = [f32::NEG_INFINITY; 3];
-    for tri in tris {
-        for (pos, nor) in &tri.verts {
-            for k in 0..3 {
-                min[k] = min[k].min(pos[k]);
-                max[k] = max[k].max(pos[k]);
-            }
-            let n = normalize(*nor);
-            words.push(normal_pack(n[0], n[1], n[2]));
-            let (xy, z) = vertex16(pos[0], pos[1], pos[2]);
-            words.push(xy);
-            words.push(z);
-        }
-    }
+    let (words, [min, max]) = display_list(tris);
 
     let mut out = String::new();
     out.push_str("{\n");
@@ -298,6 +283,84 @@ fn emit(tris: &[Tri], full: &std::path::Path) -> String {
         fl(max[0]), fl(max[1]), fl(max[2]),
     );
     out.push_str("}\n");
+    out
+}
+
+// Packed Geometry-Engine FIFO command IDs, i.e. `REG2ID(reg) = (addr - 0x04000400) >> 2`
+// from `<nds/arm9/videoGL.h>`. These index a register so four of them pack into
+// one 32-bit word via [`fifo_pack`]; the arguments each command consumes then
+// follow, in order, in the words after the packed-command word.
+const FIFO_NOP: u8 = 0x00; // GFX_FIFO 0x04000400 — padding, no arguments
+const FIFO_NORMAL: u8 = 0x21; // GFX_NORMAL 0x04000484 — 1 argument
+const FIFO_VERTEX16: u8 = 0x23; // GFX_VERTEX16 0x0400048C — 2 arguments
+const FIFO_BEGIN: u8 = 0x40; // GFX_BEGIN 0x04000500 — 1 argument (primitive type)
+const FIFO_END: u8 = 0x41; // GFX_END 0x04000504 — no arguments
+/// `GL_TRIANGLES` primitive selector for `GFX_BEGIN`.
+const GL_TRIANGLES: u32 = 0;
+
+/// Build a libnds display list for a hardware-lit triangle mesh, plus its
+/// local-space axis-aligned bounding box (`[min, max]`).
+///
+/// A display list is a self-contained command block the GPU consumes in one DMA
+/// burst (`glCallList`). Its layout (see the BlocksDS `display_list_creation`
+/// example) is: a leading word giving the body length in `u32`s, then the body —
+/// words that pack four command IDs each ([`fifo_pack`]), with the arguments for
+/// those commands following in order. We emit one `GFX_BEGIN(GL_TRIANGLES)`, then
+/// per vertex a `GFX_NORMAL` (1 word) and a `GFX_VERTEX16` (2 words), then
+/// `GFX_END`. Lighting/material/poly-format are set by the renderer *outside* the
+/// list, so the same baked geometry honours the live [`DsMaterial`]/`DsLights`.
+fn display_list(tris: &[Tri]) -> (Vec<u32>, [[f32; 3]; 2]) {
+    let mut min = [f32::INFINITY; 3];
+    let mut max = [f32::NEG_INFINITY; 3];
+
+    // (command id, its argument words), in submission order.
+    let mut ops: Vec<(u8, Vec<u32>)> = Vec::with_capacity(tris.len() * 6 + 2);
+    ops.push((FIFO_BEGIN, vec![GL_TRIANGLES]));
+    for tri in tris {
+        for (pos, nor) in &tri.verts {
+            for k in 0..3 {
+                min[k] = min[k].min(pos[k]);
+                max[k] = max[k].max(pos[k]);
+            }
+            let n = normalize(*nor);
+            ops.push((FIFO_NORMAL, vec![normal_pack(n[0], n[1], n[2])]));
+            let (xy, z) = vertex16(pos[0], pos[1], pos[2]);
+            ops.push((FIFO_VERTEX16, vec![xy, z]));
+        }
+    }
+    ops.push((FIFO_END, vec![]));
+
+    (pack_display_list(&ops), [min, max])
+}
+
+/// Pack four FIFO command IDs into one little-endian word (`c0` in the low byte),
+/// matching libnds' `FIFO_COMMAND_PACK`.
+fn fifo_pack(cmds: [u8; 4]) -> u32 {
+    (cmds[0] as u32)
+        | ((cmds[1] as u32) << 8)
+        | ((cmds[2] as u32) << 16)
+        | ((cmds[3] as u32) << 24)
+}
+
+/// Encode `(command, args)` ops into the display-list `u32` stream: a leading
+/// body-length word, then groups of one packed-command word (four IDs, padded
+/// with [`FIFO_NOP`]) followed by those commands' argument words in order.
+fn pack_display_list(ops: &[(u8, Vec<u32>)]) -> Vec<u32> {
+    let mut body: Vec<u32> = Vec::new();
+    for chunk in ops.chunks(4) {
+        let mut ids = [FIFO_NOP; 4];
+        for (i, (cmd, _)) in chunk.iter().enumerate() {
+            ids[i] = *cmd;
+        }
+        body.push(fifo_pack(ids));
+        for (_, args) in chunk {
+            body.extend_from_slice(args);
+        }
+    }
+
+    let mut out = Vec::with_capacity(body.len() + 1);
+    out.push(body.len() as u32); // glCallList: first word is the body length in words
+    out.extend_from_slice(&body);
     out
 }
 
@@ -454,4 +517,67 @@ fn describe(tt: Option<&TokenTree>) -> String {
 /// Produce a `compile_error!` token stream with the given message.
 fn compile_error(msg: &str) -> TokenStream {
     TokenStream::from_str(&format!("compile_error!({msg:?})")).expect("valid compile_error tokens")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fifo_pack_is_little_endian() {
+        assert_eq!(fifo_pack([0x40, 0x21, 0x23, 0x41]), 0x4123_2140);
+        // NOP padding lands in the high bytes.
+        assert_eq!(fifo_pack([FIFO_END, FIFO_NOP, FIFO_NOP, FIFO_NOP]), 0x0000_0041);
+    }
+
+    /// One triangle → BEGIN + 3×(NORMAL, VERTEX16) + END = 8 ops, packed four to
+    /// a command word with their args interleaved, and a correct length header.
+    #[test]
+    fn single_triangle_display_list_layout() {
+        let tris = parse_obj(
+            "v 0 0 0\nv 1 0 0\nv 0 1 0\nvn 0 0 1\nf 1//1 2//1 3//1\n",
+        )
+        .unwrap();
+        assert_eq!(tris.len(), 1);
+
+        let (words, _aabb) = display_list(&tris);
+
+        // 8 ops → 2 command words. Args: BEGIN 1, NORMAL 1 (×3), VERTEX16 2 (×3),
+        // END 0 = 1 + 3 + 6 = 10 arg words. Body = 2 + 10 = 12; +1 length word.
+        assert_eq!(words[0], 12, "length header counts body words only");
+        assert_eq!(words.len(), 13);
+
+        // First command word packs BEGIN, NORMAL, VERTEX16, NORMAL.
+        assert_eq!(words[1], fifo_pack([FIFO_BEGIN, FIFO_NORMAL, FIFO_VERTEX16, FIFO_NORMAL]));
+        // BEGIN's argument is the GL_TRIANGLES selector.
+        assert_eq!(words[2], GL_TRIANGLES);
+
+        // chunk0 args (BEGIN1 + NORMAL1 + VERTEX16:2 + NORMAL1 = 5) put the second
+        // command word at index 7, packing the run's tail: VERTEX16, NORMAL,
+        // VERTEX16, END (exactly four ops, so no NOP padding needed here).
+        assert_eq!(words[7], fifo_pack([FIFO_VERTEX16, FIFO_NORMAL, FIFO_VERTEX16, FIFO_END]));
+    }
+
+    /// The packing math must stay identical to `bevy_nds_3d::ffi` so baked words
+    /// mean the same thing as the runtime path (4.12 fixed; v10 signed normals).
+    #[test]
+    fn packing_matches_hardware_format() {
+        // 1.0 in 4.12 fixed is 0x1000; packed (x,y) low/high halves.
+        assert_eq!(vertex16(1.0, 0.0, 0.0), (0x0000_1000, 0x0000_0000));
+        // -1.0 → 0xF000 as i16, zero-extended into the half word.
+        assert_eq!(vertex16(-1.0, 0.0, 0.0).0 & 0xFFFF, 0xF000);
+
+        // Unit +Z normal: only the z field (bits 20..30) is set to +0.998 (0x1FF).
+        assert_eq!(normal_pack(0.0, 0.0, 1.0), 0x1FF << 20);
+        // float_to_v10 clamps to the representable signed range.
+        assert_eq!(float_to_v10(2.0), 0x1FF);
+        assert_eq!(float_to_v10(-2.0), 0x200);
+    }
+
+    /// Quad faces are fan-triangulated into two triangles.
+    #[test]
+    fn quads_are_fan_triangulated() {
+        let tris = parse_obj("v 0 0 0\nv 1 0 0\nv 1 1 0\nv 0 1 0\nf 1 2 3 4\n").unwrap();
+        assert_eq!(tris.len(), 2);
+    }
 }

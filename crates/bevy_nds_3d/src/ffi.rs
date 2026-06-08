@@ -121,6 +121,10 @@ unsafe extern "C" {
     /// Multiply the current matrix by a rotation of `angle` (DS angle units)
     /// about the axis `(x, y, z)`.
     pub fn glRotatef32i(angle: c_int, x: i32, y: i32, z: i32);
+    /// Send a packed display list to the Geometry Engine via asynchronous DMA.
+    /// The first word of `list` is the body length in `u32`s, followed by the
+    /// packed command stream. See `<nds/arm9/videoGL.h>`.
+    pub fn glCallList(list: *const u32);
 }
 
 /// Safe-to-call (still `unsafe`: they touch MMIO) reimplementations of the
@@ -246,24 +250,19 @@ pub mod gl {
         unsafe { write_volatile(GFX_NORMAL, packed) }
     }
 
-    /// Stream a baked lit-vertex command run to the Geometry Engine. `words` is a
-    /// flat list of pre-packed command words, **three per vertex** in the fixed
-    /// order `[normal, vertex16-xy, vertex16-z]` (as produced by the `include_obj!`
-    /// macro at build time). This is the hot path for static lit meshes: it does
-    /// no float maths at all, just MMIO writes, which keeps large models at frame
-    /// rate on the 33 MHz ARM9.
+    /// Draw a baked display list via libnds `glCallList`. The Geometry Engine
+    /// consumes the whole self-contained command block (its own `begin` …
+    /// vertices … `end`) in one asynchronous DMA burst, so the 33 MHz ARM9 does
+    /// no per-vertex work — this is what keeps large `include_obj!` models at
+    /// frame rate. `words` is a libnds display list (leading body-length word
+    /// then packed commands), as produced by the macro at build time.
     ///
     /// # Safety
-    /// Must be called between [`begin`]/[`end`], with lighting/material set up,
-    /// and `words.len()` a multiple of three.
-    pub unsafe fn stream_lit(words: &[u32]) {
-        for v in words.chunks_exact(3) {
-            unsafe {
-                write_volatile(GFX_NORMAL, v[0]);
-                write_volatile(GFX_VERTEX16, v[1]);
-                write_volatile(GFX_VERTEX16, v[2]);
-            }
-        }
+    /// Poly format / material / lights must be set up beforehand. Unlike the
+    /// per-vertex calls this must **not** be wrapped in [`begin`]/[`end`] — the
+    /// list carries its own. `words` must be a valid display list.
+    pub unsafe fn call_list(words: &[u32]) {
+        unsafe { glCallList(words.as_ptr()) }
     }
 
     /// Configure directional light `id` (0-3): its `color` (RGB15) and its
