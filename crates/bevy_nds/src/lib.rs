@@ -10,6 +10,7 @@
 //! | Top / bottom LCDs      | [`DsScreen`] component + `Consoles` resource (via [`VideoPlugin`]) |
 //! | Buttons                | `ButtonInput<`[`DsButton`]`>` resource (via [`InputPlugin`]) |
 //! | Touch screen           | `Touches` resource + `TouchInput` events (via [`InputPlugin`]) |
+//! | Touch gestures         | [`Gestures`] resource + [`GestureEvent`] events (via [`GesturePlugin`]) |
 //! | Vertical-blank @ 60 Hz | the [`run`] loop + `Time` resource (via [`TimePlugin`]) |
 //! | Tiled text background   | [`Glyph`] / [`DsText`] + [`TilePos`] drawn by [`RenderPlugin`] |
 //!
@@ -40,6 +41,7 @@ extern crate alloc;
 
 mod diagnostics;
 mod ffi;
+mod gesture;
 mod input;
 mod render;
 mod runner;
@@ -52,6 +54,7 @@ mod screen;
 mod time;
 
 pub use diagnostics::{DiagnosticsPlugin, Fps};
+pub use gesture::{Gesture, GestureEvent, GesturePlugin, GestureRecognizer, Gestures, SwipeDir};
 pub use input::{DsButton, InputPlugin};
 pub use render::{DsText, Glyph, RenderPlugin, TilePos};
 pub use runner::{DsPlugins, run};
@@ -61,6 +64,7 @@ pub use time::TimePlugin;
 /// Common imports for games built on `bevy_nds`.
 pub mod prelude {
     pub use crate::diagnostics::Fps;
+    pub use crate::gesture::{Gesture, GestureEvent, Gestures, SwipeDir};
     pub use crate::input::DsButton;
     pub use crate::render::{DsText, Glyph, TilePos};
     pub use crate::runner::{DsPlugins, run};

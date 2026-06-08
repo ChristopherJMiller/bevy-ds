@@ -55,6 +55,7 @@ concepts so game code doesn't deal with it directly:
 | Top / bottom LCDs        | `DsScreen::{Top,Bottom}` component + `Consoles` resource             | `VideoPlugin`       |
 | Buttons (`REG_KEYINPUT`) | the standard `ButtonInput<DsButton>` resource                        | `InputPlugin`       |
 | Touch screen (`touchRead`) | the standard `Touches` resource + `TouchInput` events              | `InputPlugin`       |
+| Touch gestures (derived) | `Gestures` resource + `GestureEvent` events (tap/long-press/swipe/drag) | `GesturePlugin`  |
 | 3D touch picking         | `TouchPick` resource (mesh entity under the pen, via position test)  | `Ds3dPlugin`        |
 | Vertical-blank @ ~60 Hz  | a `set_runner` frame loop + a real `Time` resource (hardware timer)  | `TimePlugin`        |
 | —                        | a smoothed `Fps` resource for diagnostics                            | `DiagnosticsPlugin` |

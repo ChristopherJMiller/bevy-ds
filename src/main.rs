@@ -57,6 +57,7 @@ impl Plugin for GamePlugin {
                 update_hud,
                 update_touch_hud,
                 update_pick_hud,
+                update_gesture_hud,
                 poke_picked,
             ),
         );
@@ -84,6 +85,10 @@ struct TouchHud;
 /// A status line naming which teapot the pen is currently over (via picking).
 #[derive(Component)]
 struct PickHud;
+
+/// A status line showing the most recent touch gesture.
+#[derive(Component)]
+struct GestureHud;
 
 /// World-space Y past which the model has left the screen and crosses to the
 /// other one. Sized to the camera frustum so the model is fully off-screen first.
@@ -160,6 +165,12 @@ fn setup(mut commands: Commands, nitrofs: Res<NitroFs>) {
         TilePos::new(2, 7),
         PickHud,
         DsText::new("picked: none"),
+    ));
+    commands.spawn((
+        DsScreen::Bottom,
+        TilePos::new(2, 8),
+        GestureHud,
+        DsText::new("gesture: --"),
     ));
     commands.spawn((
         DsScreen::Bottom,
@@ -297,6 +308,35 @@ fn poke_picked(touches: Res<Touches>, pick: Res<TouchPick>, mut query: Query<&mu
         && let Ok(mut transform) = query.get_mut(entity)
     {
         transform.rotation.y += core::f32::consts::FRAC_PI_2;
+    }
+}
+
+/// Show the latest touch gesture on its HUD line. Reads the `GestureEvent`
+/// stream that `bevy_nds` derives from the touch input — tap, long-press,
+/// 4-direction swipe and drag, with no per-game bookkeeping.
+fn update_gesture_hud(
+    mut events: EventReader<GestureEvent>,
+    mut query: Query<&mut DsText, With<GestureHud>>,
+) {
+    let Some(GestureEvent(gesture)) = events.read().last() else {
+        return;
+    };
+    let label = match gesture {
+        Gesture::Tap(_) => "tap",
+        Gesture::LongPress(_) => "long press",
+        Gesture::Swipe { direction, .. } => match direction {
+            SwipeDir::Up => "swipe up",
+            SwipeDir::Down => "swipe down",
+            SwipeDir::Left => "swipe left",
+            SwipeDir::Right => "swipe right",
+        },
+        Gesture::DragStart(_) => "drag start",
+        Gesture::Drag { .. } => "drag",
+        Gesture::DragEnd(_) => "drag end",
+    };
+    for mut text in &mut query {
+        text.0.clear();
+        let _ = write!(text.0, "gesture: {label}");
     }
 }
 
