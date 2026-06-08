@@ -329,19 +329,27 @@ fn update_pick_hud(
     }
 }
 
-/// Tapping a teapot gives it a visible nudge, proving the pick is the real
-/// entity: the picked teapot (and only it) tumbles on each fresh pen-down. The
-/// same pen-down fires a click SFX so selecting an object is audible.
+/// Selecting a teapot gives it a visible nudge and fires a click SFX, proving
+/// the pick is the real entity. Selection is detected as a *rising edge* of the
+/// hardware [`TouchPick`] (the pen landing on a teapot, or sliding onto a
+/// different one). This is deliberately not gated on `touches.any_just_pressed()`:
+/// picking runs in `Last`, one phase after this `Update` system, so on the
+/// just-pressed frame `pick.entity` is still the previous frame's value and the
+/// two conditions never coincide. Edge-detecting the pick instead is robust to
+/// that ordering.
 fn poke_picked(
-    touches: Res<Touches>,
     pick: Res<TouchPick>,
+    mut last: Local<Option<Entity>>,
     mut sfx: EventWriter<PlaySfx>,
     mut query: Query<&mut Transform3d>,
 ) {
-    if !touches.any_just_pressed() {
-        return;
-    }
-    if let Some(entity) = pick.entity
+    let current = pick.entity;
+    let newly_selected = match current {
+        Some(e) if *last != Some(e) => Some(e),
+        _ => None,
+    };
+    *last = current;
+    if let Some(entity) = newly_selected
         && let Ok(mut transform) = query.get_mut(entity)
     {
         transform.rotation.y += core::f32::consts::FRAC_PI_2;
