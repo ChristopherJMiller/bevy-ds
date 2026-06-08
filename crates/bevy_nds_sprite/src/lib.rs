@@ -39,6 +39,7 @@ use core::ffi::c_void;
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 
+mod asset;
 mod ffi;
 mod slots;
 
@@ -88,12 +89,31 @@ impl Plugin for SpritePlugin {
     }
 }
 
+/// Path the plugin tries to load a `.sprite` asset from. If NitroFS isn't
+/// mounted or the file is missing/invalid, the plugin falls back to the
+/// crate's embedded cursor.
+const ASSET_PATH: &[u8] = b"nitro:/sprite.sprite\0";
+
 /// One-time sub-engine OAM bring-up: map VRAM_I to sub sprite memory, load
-/// the embedded palette, allocate gfx VRAM for the one sprite image we ship
-/// today, and copy the tile bytes into it. Runs in [`Startup`], after
-/// `bevy_nds`'s `PreStartup` video bring-up has set up the consoles.
+/// the palette + gfx (either from `nitro:/sprite.sprite` if available, or the
+/// embedded fallback), allocate gfx VRAM, and DMA the bytes into it. Runs in
+/// [`Startup`], after `bevy_nds`'s `PreStartup` mounts NitroFS.
 fn init_sprite_engine(mut commands: Commands) {
-    let (gfx_bytes, palette) = embedded::cursor();
+    // Owned slices so the embedded path and the NitroFS-loaded path share
+    // one downstream code path.
+    let (gfx_bytes, palette): (alloc::borrow::Cow<[u8]>, alloc::borrow::Cow<[u16]>) =
+        match asset::load(ASSET_PATH) {
+            Some(s) => (
+                alloc::borrow::Cow::Owned(s.gfx),
+                alloc::borrow::Cow::Owned(s.palette),
+            ),
+            None => {
+                let (g, p) = embedded::cursor();
+                (alloc::borrow::Cow::Borrowed(g), alloc::borrow::Cow::Borrowed(p))
+            }
+        };
+    let gfx_bytes: &[u8] = &gfx_bytes;
+    let palette: &[u16] = &palette;
 
     let gfx_ptr = unsafe {
         ffi::map_vram_i_to_sub_sprite();

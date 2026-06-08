@@ -15,6 +15,7 @@ description = "2D hardware sprites (OAM) for bevy_nds (no_std)."
 
 [dependencies]
 bevy_nds_video = { path = "../bevy_nds_video" }
+bevy_nds_nitrofs = { path = "../bevy_nds_nitrofs" }
 
 bevy_app = { version = "0.16", default-features = false, features = [
   "critical-section",

@@ -1,0 +1,17 @@
+[package]
+name = "png2sprite"
+version = "0.1.0"
+edition = "2024"
+description = "Bake PNGs into bevy_nds_sprite .sprite assets via BlocksDS's grit (host CLI + library)."
+
+# Host-side tool. `build.rs` calls into the library to bake each PNG under
+# `assets/sprites/` into a `.sprite` blob under `build/nitrofs/`, mirroring how
+# `obj2dl` handles OBJ models and `wav2bank` handles WAV soundbanks. The
+# wrapped `grit` binary ships inside BlocksDS, so this must run inside
+# `nix develop`.
+
+[lib]
+
+[[bin]]
+name = "png2sprite"
+path = "src/main.rs"

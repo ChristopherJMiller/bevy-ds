@@ -17,6 +17,7 @@ members = [
   "crates/bevy_nds_3d_cull",
   "crates/wav2bank",
   "crates/bevy_nds_audio",
+  "crates/png2sprite",
 ]
 resolver = "2"
 
@@ -57,6 +58,9 @@ obj2dl = { path = "crates/obj2dl" }
 # Bakes `audio/{music,sfx}/*.wav` into `build/nitrofs/soundbank.bin` (via mmutil)
 # plus a generated Rust module of the sound IDs, included by the game.
 wav2bank = { path = "crates/wav2bank" }
+# Bakes `assets/sprites/*.png` into `build/nitrofs/*.sprite` (via BlocksDS grit)
+# so `bevy_nds_sprite` can load them at runtime from NitroFS.
+png2sprite = { path = "crates/png2sprite" }
 
 [profile.dev]
 panic = "abort"

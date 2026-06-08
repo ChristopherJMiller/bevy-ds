@@ -19,12 +19,15 @@ use std::path::PathBuf;
 const ASSET_DIR: &str = "assets";
 /// Source directory of uncompiled audio assets (`music/*.wav`, `sfx/*.wav`).
 const AUDIO_DIR: &str = "audio";
+/// Source directory of uncompiled sprite PNGs.
+const SPRITE_DIR: &str = "assets/sprites";
 /// Output directory for compiled NitroFS assets (gitignored; packed by `just rom`).
 const NITROFS_DIR: &str = "build/nitrofs";
 
 fn main() {
     compile_assets();
     compile_audio();
+    compile_sprites();
     emit_link_args();
 }
 
@@ -110,6 +113,44 @@ fn write_predicted_ids(src: &std::path::Path, out_ids: &std::path::Path) {
     let rust = wav2bank::ids::emit_rust(&defines);
     if let Err(e) = std::fs::write(out_ids, rust) {
         println!("cargo:warning=could not write {}: {e}", out_ids.display());
+    }
+}
+
+/// Bake every `assets/sprites/*.png` into `build/nitrofs/*.sprite` via
+/// BlocksDS's `grit` (wrapped by the `png2sprite` library). `bevy_nds_sprite`
+/// reads them at runtime; without them, the plugin falls back to the embedded
+/// sprite baked into the crate. `grit` only exists inside `nix develop`, so a
+/// plain `cargo check` outside the shell silently skips this step.
+fn compile_sprites() {
+    let manifest = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+    let src = manifest.join(SPRITE_DIR);
+    let dst = manifest.join(NITROFS_DIR);
+    let work = PathBuf::from(env::var("OUT_DIR").unwrap()).join("png2sprite-work");
+
+    println!("cargo:rerun-if-changed={}", src.display());
+    println!("cargo:rerun-if-env-changed=BLOCKSDS");
+    println!("cargo:rerun-if-env-changed=GRIT");
+
+    if !src.is_dir() {
+        return;
+    }
+
+    let Some(grit) = png2sprite::find_grit() else {
+        println!(
+            "cargo:warning=grit not found (run inside `nix develop`); \
+             sprite PNGs not baked — bevy_nds_sprite will use the embedded fallback"
+        );
+        return;
+    };
+
+    let opts = png2sprite::Options::default();
+    match png2sprite::build_dir(&src, &dst, &grit, &work, &opts) {
+        Ok(built) => {
+            for input in &built.inputs {
+                println!("cargo:rerun-if-changed={}", input.display());
+            }
+        }
+        Err(e) => println!("cargo:warning=sprite baking failed: {e}"),
     }
 }
 

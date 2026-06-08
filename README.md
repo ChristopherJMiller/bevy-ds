@@ -30,7 +30,11 @@ drop `bevy_nds_text` for a sprite-only game).
   expressed as an ECS extraction step (diffed, flicker-free).
 - **`bevy_nds_sprite`** (`crates/bevy_nds_sprite`) — 2D hardware sprites
   (OAM): up to 128 movable image objects on the sub engine, drawn over the
-  text/tile background.
+  text/tile background. Asset is `grit`-baked from a PNG into a NitroFS
+  `.sprite` blob; the crate also carries a small embedded fallback so it
+  works without the asset pipeline.
+- **`png2sprite`** (`crates/png2sprite`) — host CLI/lib that wraps BlocksDS's
+  `grit` to bake `assets/sprites/*.png` into `.sprite` NitroFS assets.
 - **`bevy_nds_nitrofs`** (`crates/bevy_nds_nitrofs`) — mounts the ROM filesystem
   in `PreStartup` and provides `read_file` / `flush_dcache`. Shared by `bevy_nds_3d`,
   `bevy_nds_audio`, and any future asset-loading subsystem.
@@ -212,7 +216,8 @@ crates/bevy_nds_gesture/        tap/long-press/swipe/drag from the touch stream 
 crates/bevy_nds_time/           real-time Time from the hardware timer (TimePlugin)
 crates/bevy_nds_diagnostics/    smoothed Fps resource (DiagnosticsPlugin)
 crates/bevy_nds_text/           Glyph/DsText/TilePos + diffed render system (TextRenderPlugin)
-crates/bevy_nds_sprite/         OAM (hardware sprites) plugin (SpritePlugin)
+crates/bevy_nds_sprite/         OAM (hardware sprites) plugin + .sprite asset parser (SpritePlugin)
+crates/png2sprite/              host CLI/lib: PNG -> .sprite NitroFS asset via grit (used by build.rs)
 crates/bevy_nds_nitrofs/        NitroFsPlugin + read_file + flush_dcache (shared by 3d/audio)
 crates/bevy_nds_3d/             hardware 3D backend (Transform3d, DsMesh, Camera3d)
   src/lib.rs                      meshes, culling, NitroFS loading, render system
@@ -320,10 +325,9 @@ maxmod music with a click SFX on teapot selection (`AudioPlugin`), and the HUD.
 
 ## Limitations / next steps
 
-- The `bevy_nds_sprite` MVP embeds a single 16x16 4bpp sprite in the crate
-  itself; a host-side `grit` wrapper (mirroring `obj2dl` / `wav2bank`) is the
-  next step, so games can drop PNGs into `assets/sprites/` and have them
-  baked into NitroFS.
+- The `bevy_nds_sprite` MVP exposes a single hard-coded 16x16 sprite shared
+  by all spawned `Sprite` entities. A handle-based `SpriteSheet` API (and
+  multi-sheet asset baking) is a natural follow-up.
 - No Wi-Fi (dswifi). Add a `bevy_nds_wifi` crate alongside `bevy_nds_audio`
   (link `-ldswifi9`, embed the matching ARM7 core).
 - Keep entity counts modest; the DS has ~4 MB of RAM.

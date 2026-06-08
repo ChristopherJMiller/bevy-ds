@@ -74,8 +74,10 @@ they don't need (e.g. drop `bevy_nds_text` for a sprite-only game).
 - **`crates/bevy_nds_diagnostics`** — smoothed `Fps` resource.
 - **`crates/bevy_nds_text`** — tile-console text renderer (`Glyph`/`DsText`/`TilePos`).
 - **`crates/bevy_nds_sprite`** — 2D hardware sprites (OAM) on the sub engine.
-  MVP embeds one 16x16 4bpp sprite + 16-colour palette; the next step is a
-  host-side `grit` wrapper (sibling to `obj2dl` / `wav2bank`).
+  Loads a `.sprite` asset from NitroFS at startup (or falls back to an
+  embedded 16x16 cursor). Pure parser host-tested.
+- **`crates/png2sprite`** — host CLI/library that wraps BlocksDS's `grit` to
+  bake `assets/sprites/*.png` into `.sprite` NitroFS assets.
 - **`crates/bevy_nds_nitrofs`** — mounts the ROM filesystem and exposes
   `read_file` / `flush_dcache`. Shared by 3D, audio, and any future asset loader.
 
@@ -169,6 +171,17 @@ Two delivery paths produce **byte-identical** geometry:
   `DsMesh::load("nitro:/model.dl")` (cache-flushes before the DMA).
 
 Meshes carry a local AABB used by `bevy_nds_3d_cull` for view-frustum culling.
+
+### Sprite pipeline
+
+`bevy_nds_sprite` drives the sub engine's OAM. Sprite tile data + a 16-entry
+palette live in a baked `.sprite` blob: `build.rs` calls `png2sprite` (wraps
+BlocksDS's `grit`) over `assets/sprites/*.png` into `build/nitrofs/*.sprite`,
+which `just rom` packs into the ROM. The plugin loads `nitro:/sprite.sprite`
+at startup, falls back to a tiny embedded cursor if the file is missing or
+NitroFS isn't mounted. The on-disk format (magic `"BSP1"` + sizes + palette
++ gfx) is defined once in `png2sprite::encode` and parsed by
+`bevy_nds_sprite::asset::parse` — keep the two in sync.
 
 ### Audio pipeline
 
