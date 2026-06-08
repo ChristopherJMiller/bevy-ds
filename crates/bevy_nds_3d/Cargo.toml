@@ -25,3 +25,8 @@ bevy_ecs = { version = "0.16", default-features = false, features = [
 ] }
 # glam (via bevy_math) for friendly f32 Vec3 maths; `libm` keeps it no_std.
 bevy_math = { version = "0.16", default-features = false, features = ["libm"] }
+# For the standard `Touches` resource the picking pass reads.
+bevy_input = { version = "0.16", default-features = false, features = [
+  "critical-section",
+  "libm",
+] }

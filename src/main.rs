@@ -56,6 +56,8 @@ impl Plugin for GamePlugin {
                 spin_companion,
                 update_hud,
                 update_touch_hud,
+                update_pick_hud,
+                poke_picked,
             ),
         );
     }
@@ -78,6 +80,10 @@ struct Hud;
 /// A second status line that echoes the touch-screen position.
 #[derive(Component)]
 struct TouchHud;
+
+/// A status line naming which teapot the pen is currently over (via picking).
+#[derive(Component)]
+struct PickHud;
 
 /// World-space Y past which the model has left the screen and crosses to the
 /// other one. Sized to the camera frustum so the model is fully off-screen first.
@@ -145,14 +151,20 @@ fn setup(mut commands: Commands, nitrofs: Res<NitroFs>) {
     commands.spawn((DsScreen::Bottom, TilePos::new(5, 4), Hud, DsText::new("")));
     commands.spawn((
         DsScreen::Bottom,
-        TilePos::new(5, 6),
+        TilePos::new(2, 6),
         TouchHud,
         DsText::new("touch: --"),
     ));
     commands.spawn((
         DsScreen::Bottom,
+        TilePos::new(2, 7),
+        PickHud,
+        DsText::new("picked: none"),
+    ));
+    commands.spawn((
+        DsScreen::Bottom,
         TilePos::new(2, 20),
-        DsText::new("touch screen: read x,y"),
+        DsText::new("tap a teapot to pick it"),
     ));
     commands.spawn((
         DsScreen::Bottom,
@@ -246,6 +258,45 @@ fn update_touch_hud(touches: Res<Touches>, mut query: Query<&mut DsText, With<To
         } else {
             let _ = write!(text.0, "touch: --");
         }
+    }
+}
+
+/// Name the entity the pen is over, by checking it against the teapot markers.
+fn pick_name(pick: &TouchPick, model: Entity, companion: Entity) -> &'static str {
+    match pick.entity {
+        Some(e) if e == model => "player",
+        Some(e) if e == companion => "companion",
+        Some(_) => "?",
+        None => "none",
+    }
+}
+
+/// Report which teapot the pen is hovering over, using the engine's hardware
+/// [`TouchPick`] result. This is the "did we touch teapot 1 or 2" readout: the
+/// 3D engine picks whichever mesh is under the pen each frame.
+fn update_pick_hud(
+    pick: Res<TouchPick>,
+    model: Single<Entity, With<Model>>,
+    companion: Single<Entity, With<Companion>>,
+    mut query: Query<&mut DsText, With<PickHud>>,
+) {
+    let name = pick_name(&pick, *model, *companion);
+    for mut text in &mut query {
+        text.0.clear();
+        let _ = write!(text.0, "picked: {name}");
+    }
+}
+
+/// Tapping a teapot gives it a visible nudge, proving the pick is the real
+/// entity: the picked teapot (and only it) tumbles on each fresh pen-down.
+fn poke_picked(touches: Res<Touches>, pick: Res<TouchPick>, mut query: Query<&mut Transform3d>) {
+    if !touches.any_just_pressed() {
+        return;
+    }
+    if let Some(entity) = pick.entity
+        && let Ok(mut transform) = query.get_mut(entity)
+    {
+        transform.rotation.y += core::f32::consts::FRAC_PI_2;
     }
 }
 

@@ -47,6 +47,26 @@ const GFX_END: *mut u32 = 0x0400_0504 as *mut u32;
 const GFX_FLUSH: *mut u32 = 0x0400_0540 as *mut u32;
 const GFX_VIEWPORT: *mut u32 = 0x0400_0580 as *mut u32;
 
+// Geometry test / status registers used for hardware picking (see
+// <nds/arm9/video.h>, <nds/arm9/postest.h>).
+/// 3D engine status; bit 0 is "position/box/vertex test busy", bit 27 is the
+/// general geometry-engine-busy flag.
+const GFX_STATUS: *const u32 = 0x0400_0600 as *const u32;
+/// Position-test command register: write `VERTEX_PACK(x, y)` then `z`.
+const GFX_POS_TEST: *mut u32 = 0x0400_05C4 as *mut u32;
+/// Position-test result vector `[x, y, z, w]` (20.12 fixed); `[3]` is the W
+/// magnitude, i.e. distance from the camera.
+const GFX_POS_RESULT: *const i32 = 0x0400_0620 as *const i32;
+/// Running count of polygons submitted this frame (resets at flush / vblank). A
+/// jump after drawing one object means that object had geometry under the test
+/// point.
+const GFX_POLYGON_RAM_USAGE: *const u16 = 0x0400_0604 as *const u16;
+
+/// `GFX_STATUS_TEST_BUSY = BIT(0)`.
+const GFX_STATUS_TEST_BUSY: u32 = 1 << 0;
+/// `GFX_STATUS_BUSY = BIT(27)`.
+const GFX_STATUS_BUSY: u32 = 1 << 27;
+
 // Lighting / material command registers (see <nds/arm9/video.h>).
 const GFX_LIGHT_VECTOR: *mut u32 = 0x0400_04C8 as *mut u32;
 const GFX_LIGHT_COLOR: *mut u32 = 0x0400_04CC as *mut u32;
@@ -122,6 +142,13 @@ unsafe extern "C" {
     /// The first word of `list` is the body length in `u32`s, followed by the
     /// packed command stream. See `<nds/arm9/videoGL.h>`.
     pub fn glCallList(list: *const u32);
+
+    /// Multiply the current (projection) matrix by a "pick matrix" that restricts
+    /// rendering to a `width`x`height` pixel box centred on (`x`, `y`), in the
+    /// given `viewport` (`[x, y, w, h]`). Used for hardware picking: combined
+    /// with the normal projection it makes the Geometry Engine clip away
+    /// everything not under the cursor. See `<nds/arm9/videoGL.h>`.
+    pub fn gluPickMatrix(x: c_int, y: c_int, width: c_int, height: c_int, viewport: *const c_int);
 
     /// Mount the ROM filesystem (NitroFS) so files can be read from `nitro:/`.
     /// Pass null to use the current ROM. Returns non-zero on success. See
@@ -319,6 +346,46 @@ pub mod gl {
     /// swaps buffers at the next vertical blank.
     pub unsafe fn flush() {
         unsafe { write_volatile(GFX_FLUSH, 0) }
+    }
+
+    /// True while a position / box / vertex test is still running.
+    pub unsafe fn pos_test_busy() -> bool {
+        unsafe { read_volatile(GFX_STATUS) & GFX_STATUS_TEST_BUSY != 0 }
+    }
+
+    /// True while the Geometry Engine is still drawing.
+    pub unsafe fn gfx_busy() -> bool {
+        unsafe { read_volatile(GFX_STATUS) & GFX_STATUS_BUSY != 0 }
+    }
+
+    /// Start an asynchronous position test for the point (`x`, `y`, `z`) — in
+    /// 20.12 `v16` components — under the *current* modelview matrix. The result
+    /// (its distance from the camera) is read back with [`pos_test_w`] once
+    /// [`pos_test_busy`] clears. Mirrors libnds `PosTest_Asynch`.
+    pub unsafe fn pos_test(x: i16, y: i16, z: i16) {
+        let xy = (x as u16 as u32) | ((y as u16 as u32) << 16);
+        unsafe {
+            write_volatile(GFX_POS_TEST, xy);
+            write_volatile(GFX_POS_TEST, z as i32 as u32);
+        }
+    }
+
+    /// The W magnitude (distance from the camera) of the last position test.
+    /// Smaller is nearer. Mirrors libnds `PosTestWresult`.
+    pub unsafe fn pos_test_w() -> i32 {
+        unsafe { read_volatile(GFX_POS_RESULT.add(3)) }
+    }
+
+    /// The number of polygons submitted to the Geometry Engine so far this
+    /// frame. Compare before/after drawing an object to tell whether any of its
+    /// geometry survived clipping (i.e. fell under a pick matrix).
+    pub unsafe fn polygon_ram_usage() -> u16 {
+        unsafe { read_volatile(GFX_POLYGON_RAM_USAGE) }
+    }
+
+    /// Multiply the current matrix by a pick matrix (see [`super::gluPickMatrix`]).
+    pub unsafe fn pick_matrix(x: i32, y: i32, width: i32, height: i32, viewport: &[i32; 4]) {
+        unsafe { gluPickMatrix(x, y, width, height, viewport.as_ptr()) }
     }
 }
 

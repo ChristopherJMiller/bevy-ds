@@ -15,6 +15,8 @@
 //!   helper). There is no asset server; meshes are spawned directly.
 //! - [`Camera3d`] — a single camera resource (the DS has one projection matrix,
 //!   and the 3D core only feeds the **top** screen).
+//! - [`TouchPick`] — hardware touch-screen picking: which mesh entity is under
+//!   the pen, via the DS position-test + pick-matrix pipeline.
 //!
 //! # Hardware ownership
 //!
@@ -39,6 +41,7 @@ use core::f32::consts::TAU;
 
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
+use bevy_input::touch::Touches;
 use bevy_math::{Mat4, Vec3};
 use bevy_nds::DsScreen;
 use bevy_nds_3d_cull::{Frustum, world_aabb};
@@ -222,9 +225,8 @@ impl DsMesh {
         let (words, aabb_min, aabb_max) = parse_dl_asset(&bytes)?;
         // SAFETY: `words` is a contiguous `[u32]`; reinterpret as bytes purely to
         // hand its address/length to the cache-flush. No aliasing writes occur.
-        let word_bytes = unsafe {
-            core::slice::from_raw_parts(words.as_ptr() as *const u8, words.len() * 4)
-        };
+        let word_bytes =
+            unsafe { core::slice::from_raw_parts(words.as_ptr() as *const u8, words.len() * 4) };
         ffi::nitrofs::flush_dcache(word_bytes);
         Some(Self::from_owned(words, aabb_min, aabb_max))
     }
@@ -362,7 +364,6 @@ fn read_u32(bytes: &[u8], offset: usize) -> u32 {
         bytes[offset + 3],
     ])
 }
-
 
 /// `Transform`: rotation is Euler angles (radians), applied X then Y then Z, and
 /// `scale` is a per-axis multiplier (use [`Vec3::splat`] for uniform scale).
@@ -652,8 +653,157 @@ fn render_3d(
 
             gl::pop_matrix(1);
         }
+    }
+}
 
-        gl::flush();
+/// Hand the current frame's assembled geometry to the renderer. Split out of
+/// [`render_3d`] so the picking pass ([`pick_3d`]) can run *between* drawing and
+/// the flush, sharing this frame's matrices and geometry-engine state.
+fn flush_3d() {
+    unsafe { gl::flush() }
+}
+
+/// The result of touch-screen 3D picking: which mesh entity (if any) is under
+/// the pen this frame, nearest the camera.
+///
+/// Every entity with a [`DsMesh`] and [`Transform3d`] is pickable. Read this
+/// resource alongside the standard `Touches` input — e.g. `touches.any_just_pressed()`
+/// gated on `picking.entity == Some(my_entity)` is "the player tapped my object".
+/// `entity` is `None` when the screen is not being touched, or when no mesh sits
+/// under the touch point. Picking is meaningful only while the 3D output is on
+/// the screen being touched (the DS touch panel is the physical bottom LCD).
+#[derive(Resource, Default, Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TouchPick {
+    /// The nearest mesh entity under the touch point, if any.
+    pub entity: Option<Entity>,
+}
+
+/// Side length, in pixels, of the square pick region sampled under the pen. A
+/// few pixels gives a forgiving hit target without picking distant neighbours.
+const PICK_BOX: i32 = 4;
+
+/// Hardware 3D picking: while the screen is touched, find which mesh sits under
+/// the pen and record it in [`TouchPick`].
+///
+/// This mirrors the classic DS technique (see libnds' picking example): re-draw
+/// the scene a second time through a [`gluPickMatrix`](ffi::gluPickMatrix)
+/// projection that clips away everything outside a small box under the cursor,
+/// into an off-screen viewport so nothing is visible. For each object a hardware
+/// **position test** records its distance from the camera, and the polygon
+/// counter reveals whether any of its geometry survived the clip. The nearest
+/// object that did is the one being touched. It runs after [`render_3d`] and
+/// before [`flush_3d`], reusing this frame's geometry-engine state.
+fn pick_3d(
+    camera: Res<Camera3d>,
+    touches: Res<Touches>,
+    mut pick: ResMut<TouchPick>,
+    meshes: Query<(Entity, &Transform3d, &DsMesh)>,
+) {
+    // Nothing under the pen if the pen is up.
+    let Some(touch) = touches.iter().next() else {
+        if pick.entity.is_some() {
+            pick.entity = None;
+        }
+        return;
+    };
+    let px = touch.position().x as i32;
+    let py = touch.position().y as i32;
+
+    let aspect = to_fix(256.0 / 192.0);
+    let fovy = rad_to_angle(camera.fov_degrees * (TAU / 360.0));
+    let viewport = [0, 0, 255, 191];
+    let frustum = Frustum::perspective(
+        camera.fov_degrees * (TAU / 360.0),
+        256.0 / 192.0,
+        camera.near,
+        camera.far,
+    );
+
+    let mut nearest = i32::MAX;
+    let mut hovered = None;
+
+    unsafe {
+        // Render the picking pass off-screen so it never shows.
+        gl::viewport(0, 192, 0, 192);
+
+        // Projection: the same perspective as the display pass, but pre-multiplied
+        // by a pick matrix so only geometry under the pen survives clipping. The
+        // pick matrix expects GL-style (bottom-up) Y, hence `191 - py`.
+        gl::matrix_mode(ffi::GL_PROJECTION);
+        gl::load_identity();
+        gl::pick_matrix(px, 191 - py, PICK_BOX, PICK_BOX, &viewport);
+        ffi::gluPerspectivef32(fovy, aspect, to_fix(camera.near), to_fix(camera.far));
+
+        // View: identical to the display pass (translate by -camera).
+        gl::matrix_mode(ffi::GL_MODELVIEW);
+        gl::load_identity();
+        gl::translate(
+            to_fix(-camera.position.x),
+            to_fix(-camera.position.y),
+            to_fix(-camera.position.z),
+        );
+
+        // Count every polygon under the pen regardless of facing.
+        gl::poly_fmt(ffi::poly_alpha(31) | ffi::POLY_CULL_NONE);
+
+        for (entity, transform, mesh) in &meshes {
+            if let Some(baked) = &mesh.baked
+                && !mesh_visible(&frustum, &camera, transform, baked)
+            {
+                continue;
+            }
+
+            gl::push_matrix();
+            gl::mult_matrix_4x4(&model_matrix(transform));
+
+            // Begin checking this object: wait for the previous test/draw to
+            // finish, test the object's origin, and snapshot the polygon count.
+            while gl::pos_test_busy() {}
+            while gl::gfx_busy() {}
+            gl::pos_test(0, 0, 0);
+            let polys_before = gl::polygon_ram_usage();
+
+            submit_geometry(mesh);
+
+            // Finish: if this object drew any polygons under the pen and it is
+            // nearer than the current best, it becomes the hit.
+            while gl::gfx_busy() {}
+            while gl::pos_test_busy() {}
+            if gl::polygon_ram_usage() > polys_before {
+                let w = gl::pos_test_w();
+                if w <= nearest {
+                    nearest = w;
+                    hovered = Some(entity);
+                }
+            }
+
+            gl::pop_matrix(1);
+        }
+    }
+
+    if pick.entity != hovered {
+        pick.entity = hovered;
+    }
+}
+
+/// Submit a mesh's bare geometry to the Geometry Engine (no colour, normals or
+/// material) — enough for the picking pass to count polygons under the pen.
+///
+/// # Safety
+/// The matrices and polygon format must already be set up; runs on the DS.
+unsafe fn submit_geometry(mesh: &DsMesh) {
+    unsafe {
+        if let Some(baked) = &mesh.baked {
+            gl::call_list(&baked.words);
+        } else {
+            gl::begin(ffi::GL_TRIANGLES);
+            for tri in mesh.tris.iter() {
+                for v in tri {
+                    gl::vertex_v16(to_v16(v.pos.x), to_v16(v.pos.y), to_v16(v.pos.z));
+                }
+            }
+            gl::end();
+        }
     }
 }
 
@@ -668,8 +818,9 @@ impl Plugin for Ds3dPlugin {
         app.init_resource::<Camera3d>()
             .init_resource::<Display3d>()
             .init_resource::<DsLights>()
+            .init_resource::<TouchPick>()
             .add_systems(Startup, init_3d)
-            .add_systems(Last, (apply_display, render_3d).chain());
+            .add_systems(Last, (apply_display, render_3d, pick_3d, flush_3d).chain());
     }
 }
 
@@ -703,7 +854,7 @@ fn init_nitrofs(mut nitrofs: ResMut<NitroFs>) {
 pub mod prelude {
     pub use crate::{
         BakedMesh, Camera3d, DirectionalLight, Display3d, Ds3dPlugin, DsLights, DsMaterial, DsMesh,
-        NitroFs, NitroFsPlugin, Transform3d, Vertex,
+        NitroFs, NitroFsPlugin, TouchPick, Transform3d, Vertex,
     };
     pub use bevy_math::Vec3;
     pub use bevy_nds_3d_macros::include_obj;
