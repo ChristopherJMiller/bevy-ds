@@ -31,6 +31,7 @@ fn run() -> Result<(), String> {
             "--input" | "-i" => input = Some(args.next().ok_or("--input needs a path")?.into()),
             "--output" | "-o" => output = Some(args.next().ok_or("--output needs a path")?.into()),
             "--center" | "-c" => opts.center = true,
+            "--compress" => opts.compress = true,
             "--offset" => {
                 opts.offset = [
                     parse_f32(args.next(), "offset x")?,
@@ -72,7 +73,8 @@ fn print_usage() {
          -i, --input <path>    Source .obj file\n  \
          -o, --output <path>   Destination .dl file (parent dirs are created)\n  \
          -c, --center          Recentre geometry on its bounding-box midpoint\n      \
-         --offset x y z        Translate every vertex (after --center)\n  \
+         --offset x y z        Translate every vertex (after --center)\n      \
+         --compress            Compressed VTX_10 vertices (smaller, coarser)\n  \
          -h, --help            Show this help"
     );
 }

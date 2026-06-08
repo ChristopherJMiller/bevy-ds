@@ -23,6 +23,11 @@ pub struct Options {
     pub center: bool,
     /// Constant translation applied to every vertex (after `center`).
     pub offset: [f32; 3],
+    /// Use compressed `VTX_10` vertices (one command word each, 4.6 fixed)
+    /// instead of `VERTEX16` (two words each, 4.12 fixed). Roughly a third
+    /// smaller display list and DMA, at the cost of vertex precision (~1/64
+    /// world unit), which can facet smooth surfaces. Off by default.
+    pub compress: bool,
 }
 
 /// A baked model: a libnds display list plus its local-space bounding box.
@@ -41,7 +46,7 @@ pub fn obj_to_display_list(source: &str, opts: &Options) -> Result<Model, String
         return Err("no triangles found".into());
     }
     apply_origin(&mut tris, opts);
-    let (words, aabb) = display_list(&tris);
+    let (words, aabb) = display_list(&tris, opts.compress);
     Ok(Model { words, aabb })
 }
 
@@ -259,6 +264,7 @@ fn normalize(v: [f32; 3]) -> [f32; 3] {
 const FIFO_NOP: u8 = 0x00; // GFX_FIFO 0x04000400 — padding, no arguments
 const FIFO_NORMAL: u8 = 0x21; // GFX_NORMAL 0x04000484 — 1 argument
 const FIFO_VERTEX16: u8 = 0x23; // GFX_VERTEX16 0x0400048C — 2 arguments
+const FIFO_VERTEX10: u8 = 0x24; // GFX_VERTEX10 0x04000490 — 1 argument (compressed)
 const FIFO_BEGIN: u8 = 0x40; // GFX_BEGIN 0x04000500 — 1 argument (primitive type)
 const FIFO_END: u8 = 0x41; // GFX_END 0x04000504 — no arguments
 /// `GL_TRIANGLES` primitive selector for `GFX_BEGIN`.
@@ -272,10 +278,11 @@ const GL_TRIANGLES: u32 = 0;
 /// example) is: a leading word giving the body length in `u32`s, then the body —
 /// words that pack four command IDs each ([`fifo_pack`]), with the arguments for
 /// those commands following in order. We emit one `GFX_BEGIN(GL_TRIANGLES)`, then
-/// per vertex a `GFX_NORMAL` (1 word) and a `GFX_VERTEX16` (2 words), then
-/// `GFX_END`. Lighting/material/poly-format are set by the renderer *outside* the
-/// list, so the same baked geometry honours the live material and lights.
-fn display_list(tris: &[Tri]) -> (Vec<u32>, [[f32; 3]; 2]) {
+/// per vertex a `GFX_NORMAL` (1 word) and either a `GFX_VERTEX16` (2 words) or,
+/// when `compress` is set, a `GFX_VERTEX10` (1 word), then `GFX_END`.
+/// Lighting/material/poly-format are set by the renderer *outside* the list, so
+/// the same baked geometry honours the live material and lights.
+fn display_list(tris: &[Tri], compress: bool) -> (Vec<u32>, [[f32; 3]; 2]) {
     let mut min = [f32::INFINITY; 3];
     let mut max = [f32::NEG_INFINITY; 3];
 
@@ -290,8 +297,12 @@ fn display_list(tris: &[Tri]) -> (Vec<u32>, [[f32; 3]; 2]) {
             }
             let n = normalize(*nor);
             ops.push((FIFO_NORMAL, vec![normal_pack(n[0], n[1], n[2])]));
-            let (xy, z) = vertex16(pos[0], pos[1], pos[2]);
-            ops.push((FIFO_VERTEX16, vec![xy, z]));
+            if compress {
+                ops.push((FIFO_VERTEX10, vec![vertex10(pos[0], pos[1], pos[2])]));
+            } else {
+                let (xy, z) = vertex16(pos[0], pos[1], pos[2]);
+                ops.push((FIFO_VERTEX16, vec![xy, z]));
+            }
         }
     }
     ops.push((FIFO_END, vec![]));
@@ -340,6 +351,14 @@ fn vertex16(x: f32, y: f32, z: f32) -> (u32, u32) {
     ((yi << 16) | xi, zi)
 }
 
+/// Pack a position into the DS compressed `GFX_VERTEX10` command word: each
+/// component is 4.6 fixed (`* 64`), 10 bits each (`x` low, then `y`, then `z`).
+/// Same ±8 range as `VERTEX16` but coarser (~1/64 unit) — see [`Options::compress`].
+fn vertex10(x: f32, y: f32, z: f32) -> u32 {
+    let c = |v: f32| ((v * 64.0) as i32 as u32) & 0x3FF;
+    c(x) | (c(y) << 10) | (c(z) << 20)
+}
+
 /// Pack a unit normal into the DS `GFX_NORMAL` command word, matching
 /// `bevy_nds_3d::ffi::normal_pack` (10-bit signed per component).
 fn normal_pack(x: f32, y: f32, z: f32) -> u32 {
@@ -376,7 +395,7 @@ mod tests {
         let tris = parse_obj("v 0 0 0\nv 1 0 0\nv 0 1 0\nvn 0 0 1\nf 1//1 2//1 3//1\n").unwrap();
         assert_eq!(tris.len(), 1);
 
-        let (words, _aabb) = display_list(&tris);
+        let (words, _aabb) = display_list(&tris, false);
 
         // 8 ops → 2 command words. Args: BEGIN 1, NORMAL 1 (×3), VERTEX16 2 (×3),
         // END 0 = 1 + 3 + 6 = 10 arg words. Body = 2 + 10 = 12; +1 length word.
@@ -427,11 +446,34 @@ mod tests {
     #[test]
     fn center_recentres_bounds() {
         let src = "v 0 0 0\nv 2 0 0\nv 0 2 0\nf 1 2 3\n";
-        let m = obj_to_display_list(src, &Options { center: true, offset: [0.0; 3] }).unwrap();
+        let m = obj_to_display_list(src, &Options { center: true, ..Default::default() }).unwrap();
         // Original midpoint was (0.666, 0.666, 0); after centring, bounds are
         // symmetric about the origin on each axis.
         for k in 0..3 {
             assert!((m.aabb[0][k] + m.aabb[1][k]).abs() < 1e-4, "axis {k} not centred");
         }
+    }
+
+    /// `VTX_10` packs three 4.6-fixed components into one 10-bit-each word.
+    #[test]
+    fn vertex10_packs_three_components() {
+        // 1.0 in 4.6 fixed is 64 (0x40); -1.0 is -64 → 0x3C0 in 10-bit two's-comp.
+        assert_eq!(vertex10(1.0, 0.0, 0.0), 0x40);
+        assert_eq!(vertex10(0.0, 1.0, 0.0), 0x40 << 10);
+        assert_eq!(vertex10(0.0, 0.0, 1.0), 0x40 << 20);
+        assert_eq!(vertex10(-1.0, 0.0, 0.0) & 0x3FF, 0x3C0);
+    }
+
+    /// Compression swaps each two-word VERTEX16 for a one-word VERTEX10, so the
+    /// compressed list is shorter but encodes the same triangle count.
+    #[test]
+    fn compress_shrinks_display_list() {
+        let src = "v 0 0 0\nv 1 0 0\nv 0 1 0\nvn 0 0 1\nf 1//1 2//1 3//1\n";
+        let plain = obj_to_display_list(src, &Options::default()).unwrap();
+        let packed =
+            obj_to_display_list(src, &Options { compress: true, ..Default::default() }).unwrap();
+        // One triangle = 3 vertices; compression saves one word per vertex.
+        assert_eq!(plain.words.len() - packed.words.len(), 3);
+        assert_eq!(plain.aabb, packed.aabb);
     }
 }

@@ -39,6 +39,8 @@ use proc_macro::{TokenStream, TokenTree};
 ///   the entity's [`Transform3d`] rotates it about its visual centre.
 /// - `offset = [x, y, z]` — translate every vertex by this amount (applied
 ///   *after* `center` if both are given).
+/// - `compress` — emit compressed `VTX_10` vertices (smaller list, coarser
+///   precision; see `bevy_nds_3d_obj::Options::compress`).
 ///
 /// ```ignore
 /// use bevy_nds_3d::prelude::*;
@@ -131,6 +133,9 @@ fn parse_args(input: TokenStream) -> Result<Args, String> {
             TokenTree::Punct(p) if p.as_char() == ',' => continue,
             TokenTree::Ident(id) if id.to_string() == "center" => {
                 args.opts.center = true;
+            }
+            TokenTree::Ident(id) if id.to_string() == "compress" => {
+                args.opts.compress = true;
             }
             TokenTree::Ident(id) if id.to_string() == "offset" => {
                 match trees.next() {
