@@ -43,8 +43,8 @@ use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 use bevy_input::touch::Touches;
 use bevy_math::{Mat4, Vec3};
-use bevy_nds::DsScreen;
 use bevy_nds_3d_cull::{Frustum, world_aabb};
+use bevy_nds_video::DsScreen;
 
 mod ffi;
 
@@ -218,16 +218,16 @@ impl DsMesh {
     /// Geometry Engine's DMA (`glCallList`) reads them correctly.
     ///
     /// Returns `None` if the file is missing, truncated, or not a valid asset.
-    /// [`NitroFsPlugin`] (or [`ffi::nitrofs::init`]) must have mounted the
-    /// filesystem first.
+    /// [`bevy_nds_nitrofs::NitroFsPlugin`] must have mounted the filesystem first
+    /// (it's included in `DsPlugins`).
     pub fn load(path: &[u8]) -> Option<Self> {
-        let bytes = ffi::nitrofs::read_file(path)?;
+        let bytes = bevy_nds_nitrofs::read_file(path)?;
         let (words, aabb_min, aabb_max) = parse_dl_asset(&bytes)?;
         // SAFETY: `words` is a contiguous `[u32]`; reinterpret as bytes purely to
         // hand its address/length to the cache-flush. No aliasing writes occur.
         let word_bytes =
             unsafe { core::slice::from_raw_parts(words.as_ptr() as *const u8, words.len() * 4) };
-        ffi::nitrofs::flush_dcache(word_bytes);
+        bevy_nds_nitrofs::flush_dcache(word_bytes);
         Some(Self::from_owned(words, aabb_min, aabb_max))
     }
 
@@ -824,37 +824,11 @@ impl Plugin for Ds3dPlugin {
     }
 }
 
-/// Records whether the ROM filesystem (NitroFS) mounted successfully. When
-/// `ready` is `false`, [`DsMesh::load`] calls will fail — the loader probably
-/// didn't supply `argv[0]`/DLDI (emulators always work). Inserted by
-/// [`NitroFsPlugin`].
-#[derive(Resource, Clone, Copy, Debug, Default)]
-pub struct NitroFs {
-    pub ready: bool,
-}
-
-/// Mounts the ROM filesystem (NitroFS) in [`PreStartup`] so models and other
-/// assets can be loaded at runtime with [`DsMesh::load`]. Add it before any
-/// [`Startup`] system that loads assets. The [`NitroFs`] resource records
-/// whether the mount succeeded.
-pub struct NitroFsPlugin;
-
-impl Plugin for NitroFsPlugin {
-    fn build(&self, app: &mut App) {
-        app.init_resource::<NitroFs>()
-            .add_systems(PreStartup, init_nitrofs);
-    }
-}
-
-fn init_nitrofs(mut nitrofs: ResMut<NitroFs>) {
-    nitrofs.ready = ffi::nitrofs::init();
-}
-
 /// Common imports for games using the 3D backend.
 pub mod prelude {
     pub use crate::{
         BakedMesh, Camera3d, DirectionalLight, Display3d, Ds3dPlugin, DsLights, DsMaterial, DsMesh,
-        NitroFs, NitroFsPlugin, TouchPick, Transform3d, Vertex,
+        TouchPick, Transform3d, Vertex,
     };
     pub use bevy_math::Vec3;
     pub use bevy_nds_3d_macros::include_obj;

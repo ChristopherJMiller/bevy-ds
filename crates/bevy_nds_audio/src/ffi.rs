@@ -41,11 +41,6 @@ unsafe extern "C" {
     /// Power down the sound hardware.
     pub fn soundDisable();
 
-    // --- ROM filesystem (see `<filesystem.h>`) -------------------------------
-    /// Mount the ROM filesystem (NitroFS) so the soundbank can be read from
-    /// `nitro:/`. Safe to call again if another plugin already mounted it.
-    pub fn nitroFSInit(basepath: *const c_char) -> mm_bool;
-
     // --- maxmod system (see `<maxmod9.h>`) -----------------------------------
     /// Initialise maxmod with the default channel layout, loading the soundbank
     /// from the given file (e.g. `"nitro:/soundbank.bin"`). Returns success.

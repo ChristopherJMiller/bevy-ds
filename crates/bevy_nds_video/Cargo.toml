@@ -1,0 +1,19 @@
+[package]
+name = "bevy_nds_video"
+version = "0.1.0"
+edition = "2024"
+description = "DS LCD/console bring-up for bevy_nds (no_std)."
+
+# Brings up a libnds text console on both physical LCDs (main + sub 2D engines)
+# and exposes the screens as a `DsScreen` component + `Consoles` resource. Other
+# rendering crates (`bevy_nds_text`, the future sprite plugin) layer on top.
+
+[lib]
+
+[dependencies]
+bevy_app = { version = "0.16", default-features = false, features = [
+  "critical-section",
+] }
+bevy_ecs = { version = "0.16", default-features = false, features = [
+  "critical-section",
+] }

@@ -1,5 +1,22 @@
 [workspace]
-members = ["crates/bevy_nds", "crates/bevy_nds_3d", "crates/bevy_nds_3d_macros", "crates/bevy_nds_3d_obj", "crates/obj2dl", "crates/bevy_nds_3d_cull", "crates/wav2bank", "crates/bevy_nds_audio"]
+members = [
+  "crates/bevy_nds",
+  "crates/bevy_nds_runtime",
+  "crates/bevy_nds_video",
+  "crates/bevy_nds_input",
+  "crates/bevy_nds_gesture",
+  "crates/bevy_nds_time",
+  "crates/bevy_nds_diagnostics",
+  "crates/bevy_nds_text",
+  "crates/bevy_nds_nitrofs",
+  "crates/bevy_nds_3d",
+  "crates/bevy_nds_3d_macros",
+  "crates/bevy_nds_3d_obj",
+  "crates/obj2dl",
+  "crates/bevy_nds_3d_cull",
+  "crates/wav2bank",
+  "crates/bevy_nds_audio",
+]
 resolver = "2"
 
 [package]
@@ -53,6 +70,30 @@ opt-level = 3
 # left at the default opt-level 0 so iterating on game logic stays fast to
 # compile; it holds only lightweight per-frame ECS systems.
 [profile.dev.package.bevy_nds]
+opt-level = 3
+
+[profile.dev.package.bevy_nds_runtime]
+opt-level = 3
+
+[profile.dev.package.bevy_nds_video]
+opt-level = 3
+
+[profile.dev.package.bevy_nds_input]
+opt-level = 3
+
+[profile.dev.package.bevy_nds_gesture]
+opt-level = 3
+
+[profile.dev.package.bevy_nds_time]
+opt-level = 3
+
+[profile.dev.package.bevy_nds_diagnostics]
+opt-level = 3
+
+[profile.dev.package.bevy_nds_text]
+opt-level = 3
+
+[profile.dev.package.bevy_nds_nitrofs]
 opt-level = 3
 
 [profile.dev.package.bevy_nds_3d]

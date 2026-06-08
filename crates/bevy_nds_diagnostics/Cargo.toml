@@ -1,0 +1,21 @@
+[package]
+name = "bevy_nds_diagnostics"
+version = "0.1.0"
+edition = "2024"
+description = "Runtime diagnostics (smoothed FPS) for bevy_nds (no_std)."
+
+# A tiny ECS plugin that derives a smoothed frames-per-second estimate from the
+# real per-frame delta and surfaces it as an `Fps` resource. Pure logic — no FFI.
+
+[lib]
+
+[dependencies]
+bevy_app = { version = "0.16", default-features = false, features = [
+  "critical-section",
+] }
+bevy_ecs = { version = "0.16", default-features = false, features = [
+  "critical-section",
+] }
+bevy_time = { version = "0.16", default-features = false, features = [
+  "critical-section",
+] }

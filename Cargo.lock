@@ -170,11 +170,16 @@ name = "bevy_nds"
 version = "0.1.0"
 dependencies = [
  "bevy_app",
- "bevy_ecs",
  "bevy_input",
- "bevy_math",
+ "bevy_nds_diagnostics",
+ "bevy_nds_gesture",
+ "bevy_nds_input",
+ "bevy_nds_nitrofs",
+ "bevy_nds_runtime",
+ "bevy_nds_text",
+ "bevy_nds_time",
+ "bevy_nds_video",
  "bevy_time",
- "critical-section",
 ]
 
 [[package]]
@@ -185,9 +190,10 @@ dependencies = [
  "bevy_ecs",
  "bevy_input",
  "bevy_math",
- "bevy_nds",
  "bevy_nds_3d_cull",
  "bevy_nds_3d_macros",
+ "bevy_nds_nitrofs",
+ "bevy_nds_video",
 ]
 
 [[package]]
@@ -214,7 +220,79 @@ version = "0.1.0"
 dependencies = [
  "bevy_app",
  "bevy_ecs",
- "bevy_nds",
+ "bevy_nds_nitrofs",
+]
+
+[[package]]
+name = "bevy_nds_diagnostics"
+version = "0.1.0"
+dependencies = [
+ "bevy_app",
+ "bevy_ecs",
+ "bevy_time",
+]
+
+[[package]]
+name = "bevy_nds_gesture"
+version = "0.1.0"
+dependencies = [
+ "bevy_app",
+ "bevy_ecs",
+ "bevy_input",
+ "bevy_math",
+ "bevy_time",
+]
+
+[[package]]
+name = "bevy_nds_input"
+version = "0.1.0"
+dependencies = [
+ "bevy_app",
+ "bevy_ecs",
+ "bevy_input",
+ "bevy_math",
+]
+
+[[package]]
+name = "bevy_nds_nitrofs"
+version = "0.1.0"
+dependencies = [
+ "bevy_app",
+ "bevy_ecs",
+]
+
+[[package]]
+name = "bevy_nds_runtime"
+version = "0.1.0"
+dependencies = [
+ "bevy_app",
+ "critical-section",
+]
+
+[[package]]
+name = "bevy_nds_text"
+version = "0.1.0"
+dependencies = [
+ "bevy_app",
+ "bevy_ecs",
+ "bevy_nds_video",
+]
+
+[[package]]
+name = "bevy_nds_time"
+version = "0.1.0"
+dependencies = [
+ "bevy_app",
+ "bevy_ecs",
+ "bevy_time",
+]
+
+[[package]]
+name = "bevy_nds_video"
+version = "0.1.0"
+dependencies = [
+ "bevy_app",
+ "bevy_ecs",
 ]
 
 [[package]]

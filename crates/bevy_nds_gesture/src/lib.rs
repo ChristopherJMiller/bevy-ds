@@ -1,8 +1,8 @@
-//! Lightweight touch gestures, derived from the [`Touches`] stream.
+//! Lightweight touch gestures, derived from Bevy's [`Touches`] stream.
 //!
 //! Gestures on the DS are not a hardware feature — they are a small amount of
-//! bookkeeping over the per-frame touch position that [`InputPlugin`] already
-//! produces. This module turns that single moving point into the gestures most
+//! bookkeeping over the per-frame touch position that `bevy_nds_input` already
+//! produces. This crate turns that single moving point into the gestures most
 //! games actually need — **tap**, **long-press**, four-direction **swipe** and
 //! **drag** — and surfaces them two ways, mirroring how Bevy exposes other
 //! input:
@@ -12,10 +12,12 @@
 //!   cleared each frame like [`ButtonInput`](bevy_input::ButtonInput).
 //!
 //! All recognition lives in the pure [`GestureRecognizer`] state machine, which
-//! is unit-tested on the host; the [`detect_gestures`] system is a thin wrapper
-//! that feeds it the current touch and time.
-//!
-//! [`InputPlugin`]: crate::input::InputPlugin
+//! is unit-tested on the host; the system that calls it is a thin wrapper that
+//! feeds it the current touch and time.
+
+#![cfg_attr(not(test), no_std)]
+
+extern crate alloc;
 
 use alloc::vec::Vec;
 use core::time::Duration;
@@ -286,9 +288,8 @@ fn detect_gestures(
 }
 
 /// Adds touch-gesture recognition: the [`Gestures`] resource and
-/// [`GestureEvent`] stream, derived from [`Touches`]. Requires
-/// [`InputPlugin`](crate::input::InputPlugin) (for the touch data) and
-/// [`TimePlugin`](crate::time::TimePlugin) (for timing).
+/// [`GestureEvent`] stream, derived from [`Touches`]. Requires the input plugin
+/// (for the touch data) and a `Time` resource (for timing).
 pub struct GesturePlugin;
 
 impl Plugin for GesturePlugin {

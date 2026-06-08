@@ -6,17 +6,15 @@
 //! backend) and [`bevy_nds_audio`] via [`AudioPlugin`] (maxmod sound): this
 //! file contains no FFI, no allocator and no panic handler.
 //!
-//! A hardware-rendered, hardware-*lit* Utah teapot starts on the bottom screen,
-//! with a smaller second teapot spinning beside it. The model is loaded at
-//! runtime from the ROM filesystem (NitroFS): `build.rs` bakes
-//! `assets/teapot.obj` into `nitro:/teapot.dl` and [`DsMesh::load`] reads it on
-//! startup, falling back to a copy baked into the binary with [`include_obj!`]
-//! if the filesystem is unavailable. The D-pad moves the player's teapot around,
-//! and when it runs off the top or bottom edge it *travels to the other screen*
-//! (a coupled LCD swap, since the DS 3D core is wired to the main engine). ABXY
-//! tumble it so you can watch the hardware lighting play across the surface.
-//! Looping piano music plays from the baked soundbank (START toggles it), and
-//! tapping a teapot fires a click SFX.
+//! The demo is a tiny "tile-grid exploration": a hardware-rendered, hardware-lit
+//! Utah teapot sits on the bottom screen (the 3D engine's permanent home) and
+//! moves one cell at a time around a small map. The top screen shows the map
+//! as ASCII (a placeholder for the upcoming sprite plugin) with the player's
+//! `@` and a stationary companion `O` drawn over the walkable floor `.` and
+//! walls `#`. D-pad snaps the player between adjacent walkable cells; ABXY
+//! still tumble the player teapot so the hardware lighting plays across the
+//! surface. Looping piano music plays from the baked soundbank (START toggles
+//! it), and tapping a teapot fires a click SFX.
 
 #![no_std]
 #![no_main]
@@ -45,7 +43,6 @@ pub extern "C" fn main() -> core::ffi::c_int {
     let mut app = App::new();
     app.add_plugins(DsPlugins)
         .add_plugins(Ds3dPlugin)
-        .add_plugins(NitroFsPlugin)
         .add_plugins(AudioPlugin)
         .add_plugins(GamePlugin);
     bevy_nds::run(app)
@@ -56,17 +53,20 @@ struct GamePlugin;
 
 impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
-        // Start with the 3D model on the bottom screen (text rides the other one).
+        // The 3D engine lives permanently on the bottom screen; the top screen
+        // (the sub engine's text console) is the map + HUD.
         app.insert_resource(Display3d {
             screen: DsScreen::Bottom,
         })
+        .insert_resource(Map::new())
         .add_systems(Startup, setup)
         .add_systems(
             Update,
             (
-                move_model,
-                rotate_model,
+                step_player,
                 spin_companion,
+                sync_map_to_world,
+                update_map_display,
                 update_hud,
                 update_touch_hud,
                 update_pick_hud,
@@ -79,17 +79,104 @@ impl Plugin for GamePlugin {
     }
 }
 
-/// The player-controlled model.
-#[derive(Component)]
-struct Model;
+// --- Map ---------------------------------------------------------------------
 
-/// A second, autonomous teapot that simply spins in place. It shares the
+/// Map width in cells.
+const MAP_W: usize = 16;
+/// Map height in cells.
+const MAP_H: usize = 8;
+/// World-units per map cell. The map's full extent (`MAP_W * CELL`, `MAP_H * CELL`)
+/// is sized to fit inside the camera frustum at z=0.
+const CELL: f32 = 0.2;
+
+/// World position of the centre of cell `(0, 0)`. The map is centred on the
+/// origin, so cell `(MAP_W-1, MAP_H-1)` lands at the negative of this on each
+/// axis.
+const MAP_ORIGIN: Vec3 = Vec3::new(
+    -CELL * (MAP_W as f32 - 1.0) * 0.5,
+    CELL * (MAP_H as f32 - 1.0) * 0.5,
+    0.0,
+);
+
+/// Where the map is drawn on the text console. Centres the 16x8 cell display
+/// horizontally and leaves a title row above it.
+const MAP_TILE_COL: i16 = (32 - MAP_W as i16) / 2;
+const MAP_TILE_ROW: i16 = 2;
+
+/// The level: walkable floors (`.`) and walls (`#`). Row 0 is the top.
+const MAP_DATA: [&[u8; MAP_W]; MAP_H] = [
+    b"################",
+    b"#..............#",
+    b"#.####.##.####.#",
+    b"#..............#",
+    b"#.####.##.####.#",
+    b"#..............#",
+    b"#.####.##.####.#",
+    b"################",
+];
+
+/// The map. Holds the static tile layout; entity positions are separate
+/// (carried by [`MapPos`] components) so multiple things can share a cell.
+#[derive(Resource)]
+struct Map {
+    tiles: [[u8; MAP_W]; MAP_H],
+}
+
+impl Map {
+    fn new() -> Self {
+        let mut tiles = [[b' '; MAP_W]; MAP_H];
+        for (row, src) in MAP_DATA.iter().enumerate() {
+            tiles[row] = **src;
+        }
+        Self { tiles }
+    }
+
+    /// Is `(col, row)` inside the map and a floor cell?
+    fn walkable(&self, col: i16, row: i16) -> bool {
+        if col < 0 || row < 0 || col >= MAP_W as i16 || row >= MAP_H as i16 {
+            return false;
+        }
+        self.tiles[row as usize][col as usize] == b'.'
+    }
+}
+
+/// A cell coordinate on the [`Map`]. Carried by anything that occupies a tile
+/// (the player teapot, the companion). A separate system ([`sync_map_to_world`])
+/// keeps [`Transform3d::translation`] in step with this each frame.
+#[derive(Component, Clone, Copy, PartialEq, Eq)]
+struct MapPos {
+    col: i16,
+    row: i16,
+}
+
+impl MapPos {
+    fn to_world(self) -> Vec3 {
+        Vec3::new(
+            MAP_ORIGIN.x + CELL * self.col as f32,
+            MAP_ORIGIN.y - CELL * self.row as f32,
+            0.0,
+        )
+    }
+}
+
+// --- Components --------------------------------------------------------------
+
+/// The player-controlled teapot.
+#[derive(Component)]
+struct Player;
+
+/// A second, stationary teapot that simply spins in place. It shares the
 /// player's geometry but has its own [`Transform3d`], so every frame the
 /// renderer composes and uploads two independent model matrices.
 #[derive(Component)]
 struct Companion;
 
-/// The live status line on the text screen.
+/// One row of the map display on the text console (`row` is the map-row index,
+/// not the tile-row). Recomposed in [`update_map_display`].
+#[derive(Component)]
+struct MapRow(u8);
+
+/// The live status line on the text console.
 #[derive(Component)]
 struct Hud;
 
@@ -109,21 +196,14 @@ struct GestureHud;
 #[derive(Component)]
 struct AudioHud;
 
-/// World-space Y past which the model has left the screen and crosses to the
-/// other one. Sized to the camera frustum so the model is fully off-screen first.
-const EDGE: f32 = 1.6;
+// --- Setup -------------------------------------------------------------------
 
 fn setup(mut commands: Commands, nitrofs: Res<NitroFs>, mut music: ResMut<Music>) {
-    // The Utah teapot. We prefer to load it at runtime from the ROM filesystem
-    // (NitroFS) — `build.rs` bakes `assets/teapot.obj` into `nitro:/teapot.dl`,
-    // which `just rom` packs into the ROM. This keeps large models out of the
-    // ARM9 binary (precious main RAM) and lets us swap assets without relinking.
-    // If the filesystem isn't available (e.g. a loader that doesn't provide
-    // argv[0]), we fall back to the copy baked straight into the ROM by
-    // `include_obj!`. Either way the geometry is byte-identical (shared encoder).
-    //
-    // The model is authored sitting on the XY plane (pivot at its base), so both
-    // paths recentre it (`center`) so it rotates about its visual middle.
+    // Load the teapot model: prefer NitroFS (so large models stay out of main
+    // RAM and can be swapped without relinking), fall back to the copy baked
+    // into the binary by `include_obj!`. Both paths produce byte-identical
+    // geometry. The model is authored on the XY plane (pivot at its base);
+    // both paths recentre it so it rotates about its visual middle.
     let loaded = nitrofs
         .ready
         .then(|| DsMesh::load(b"nitro:/teapot.dl\0"))
@@ -133,154 +213,161 @@ fn setup(mut commands: Commands, nitrofs: Res<NitroFs>, mut music: ResMut<Music>
     // The companion shares the same geometry (cheap Cow clone of the display list).
     let companion = teapot.clone();
 
+    // Player teapot — at a known floor cell on the upper-left of the map.
+    let player_start = MapPos { col: 2, row: 1 };
     commands.spawn((
-        Model,
+        Player,
+        player_start,
         teapot,
         DsMaterial {
             diffuse: [120, 170, 215],
             ambient: [28, 36, 56],
         },
         Transform3d {
-            translation: Vec3::ZERO,
+            translation: player_start.to_world(),
             rotation: Vec3::new(-1.3, 0.5, 0.0),
-            scale: Vec3::splat(0.4),
+            scale: Vec3::splat(0.18),
         },
     ));
 
-    // A smaller second teapot, off to the side, that spins on its own. It proves
-    // out multiple transformed meshes per frame (and the per-object CPU matrix
-    // compose + frustum culling that go with them).
+    // Companion teapot — fixed on the right-hand side, spinning. Proves out
+    // multiple transformed meshes per frame (per-object CPU matrix compose +
+    // frustum culling) without the player having to move into it.
+    let companion_pos = MapPos { col: 13, row: 5 };
     commands.spawn((
         Companion,
+        companion_pos,
         companion,
         DsMaterial {
             diffuse: [215, 150, 90],
             ambient: [48, 34, 20],
         },
         Transform3d {
-            translation: Vec3::new(0.95, -0.55, 0.0),
+            translation: companion_pos.to_world(),
             rotation: Vec3::new(-1.3, 0.0, 0.0),
-            scale: Vec3::splat(0.22),
+            scale: Vec3::splat(0.14),
         },
     ));
 
-    // Text console (sub engine): title, a per-frame HUD, and a control hint.
-    // Title doubles as proof of where the model came from this boot.
+    // Top screen: title, map rows (composed each frame from `Map` + entities),
+    // and HUD lines.
     let source = if from_nitrofs {
-        "teapot from nitro:/teapot.dl"
+        "bevy-ds map demo  (nitrofs)"
     } else {
-        "teapot baked in (no NitroFS)"
+        "bevy-ds map demo  (baked-in)"
     };
-    commands.spawn((DsScreen::Bottom, TilePos::new(2, 2), DsText::new(source)));
-    commands.spawn((DsScreen::Bottom, TilePos::new(5, 4), Hud, DsText::new("")));
+    commands.spawn((DsScreen::Bottom, TilePos::new(2, 0), DsText::new(source)));
+
+    // One DsText per map row. `update_map_display` rewrites these in place each
+    // frame; the text renderer's grid diff turns that into a few changed cells.
+    for row in 0..MAP_H {
+        commands.spawn((
+            DsScreen::Bottom,
+            TilePos::new(MAP_TILE_COL, MAP_TILE_ROW + row as i16),
+            MapRow(row as u8),
+            DsText::new(""),
+        ));
+    }
+
+    // HUD lines, below the map.
     commands.spawn((
         DsScreen::Bottom,
-        TilePos::new(2, 6),
+        TilePos::new(2, MAP_TILE_ROW + MAP_H as i16 + 1),
+        Hud,
+        DsText::new(""),
+    ));
+    commands.spawn((
+        DsScreen::Bottom,
+        TilePos::new(2, MAP_TILE_ROW + MAP_H as i16 + 2),
         TouchHud,
         DsText::new("touch: --"),
     ));
     commands.spawn((
         DsScreen::Bottom,
-        TilePos::new(2, 7),
+        TilePos::new(2, MAP_TILE_ROW + MAP_H as i16 + 3),
         PickHud,
         DsText::new("picked: none"),
     ));
     commands.spawn((
         DsScreen::Bottom,
-        TilePos::new(2, 8),
+        TilePos::new(2, MAP_TILE_ROW + MAP_H as i16 + 4),
         GestureHud,
         DsText::new("gesture: --"),
     ));
     commands.spawn((
         DsScreen::Bottom,
-        TilePos::new(2, 9),
+        TilePos::new(2, MAP_TILE_ROW + MAP_H as i16 + 5),
         AudioHud,
         DsText::new("music: --"),
     ));
     commands.spawn((
         DsScreen::Bottom,
-        TilePos::new(2, 20),
-        DsText::new("tap a teapot to pick it"),
+        TilePos::new(2, 22),
+        DsText::new("D-pad: walk   ABXY: tumble"),
     ));
     commands.spawn((
         DsScreen::Bottom,
-        TilePos::new(2, 21),
-        DsText::new("D-pad: move (crosses screens)"),
-    ));
-    commands.spawn((
-        DsScreen::Bottom,
-        TilePos::new(5, 22),
-        DsText::new("ABXY: rotate  START: mute"),
+        TilePos::new(2, 23),
+        DsText::new("tap teapot for SFX   START: mute"),
     ));
 
-    // Kick off the looping piano background music. `Music` is declarative — the
-    // audio backend reconciles the hardware to this each frame — so starting it
-    // here in `Startup` is safe regardless of when the soundbank finishes
-    // mounting in `PreStartup`.
+    // Kick off the looping piano. `Music` is declarative — the audio backend
+    // reconciles the hardware to it each frame.
     music.play(SoundId(sounds::SFX_PIANO_LOOP));
 }
 
-/// Move the model with the D-pad. When it runs off the top or bottom edge, swap
-/// which screen the 3D engine draws to and re-enter from the opposite edge, so
-/// the model appears to travel between the two LCDs.
-fn move_model(
-    input: Res<ButtonInput<DsButton>>,
-    mut display: ResMut<Display3d>,
-    mut query: Query<&mut Transform3d, With<Model>>,
-) {
-    const SPEED: f32 = 0.04;
-    for mut transform in &mut query {
-        if input.pressed(DsButton::Left) {
-            transform.translation.x -= SPEED;
-        }
-        if input.pressed(DsButton::Right) {
-            transform.translation.x += SPEED;
-        }
-        if input.pressed(DsButton::Up) {
-            transform.translation.y += SPEED;
-        }
-        if input.pressed(DsButton::Down) {
-            transform.translation.y -= SPEED;
-        }
-        transform.translation.x = transform.translation.x.clamp(-1.5, 1.5);
+// --- Movement ----------------------------------------------------------------
 
-        // Off the top: hop to the other screen, re-entering from the bottom.
-        if transform.translation.y > EDGE {
-            transform.translation.y = -EDGE;
-            display.screen = other(display.screen);
-        // Off the bottom: hop the other way, re-entering from the top.
-        } else if transform.translation.y < -EDGE {
-            transform.translation.y = EDGE;
-            display.screen = other(display.screen);
+/// Move the player one cell on D-pad press (not hold), if the target is
+/// walkable. Discrete cell-snapped movement: the world position follows in
+/// [`sync_map_to_world`].
+fn step_player(
+    input: Res<ButtonInput<DsButton>>,
+    map: Res<Map>,
+    mut query: Query<&mut MapPos, With<Player>>,
+) {
+    let (dx, dy) = if input.just_pressed(DsButton::Left) {
+        (-1, 0)
+    } else if input.just_pressed(DsButton::Right) {
+        (1, 0)
+    } else if input.just_pressed(DsButton::Up) {
+        (0, -1)
+    } else if input.just_pressed(DsButton::Down) {
+        (0, 1)
+    } else {
+        return;
+    };
+    for mut pos in &mut query {
+        let target_col = pos.col + dx;
+        let target_row = pos.row + dy;
+        if map.walkable(target_col, target_row) {
+            pos.col = target_col;
+            pos.row = target_row;
         }
     }
 }
 
-/// Tumble the model with the face buttons so the lighting is visible: Y/A yaw
-/// left/right, X/B pitch up/down.
-fn rotate_model(
-    input: Res<ButtonInput<DsButton>>,
-    mut query: Query<&mut Transform3d, With<Model>>,
-) {
+/// Tumble the player with the face buttons so the hardware lighting is visible:
+/// Y/A yaw left/right, X/B pitch up/down.
+fn tumble_player(input: &ButtonInput<DsButton>, transform: &mut Transform3d) {
     const SPEED: f32 = 0.06;
-    for mut transform in &mut query {
-        if input.pressed(DsButton::A) {
-            transform.rotation.y += SPEED;
-        }
-        if input.pressed(DsButton::Y) {
-            transform.rotation.y -= SPEED;
-        }
-        if input.pressed(DsButton::X) {
-            transform.rotation.x -= SPEED;
-        }
-        if input.pressed(DsButton::B) {
-            transform.rotation.x += SPEED;
-        }
+    if input.pressed(DsButton::A) {
+        transform.rotation.y += SPEED;
+    }
+    if input.pressed(DsButton::Y) {
+        transform.rotation.y -= SPEED;
+    }
+    if input.pressed(DsButton::X) {
+        transform.rotation.x -= SPEED;
+    }
+    if input.pressed(DsButton::B) {
+        transform.rotation.x += SPEED;
     }
 }
 
-/// Slowly spin the autonomous companion teapot so the two models animate
-/// independently.
+/// Slowly spin the companion in place, and apply the face-button tumble to the
+/// player. Both are folded into the same `MapPos -> world` sync below so any
+/// rotation here lands in the same frame's transform.
 fn spin_companion(time: Res<Time>, mut query: Query<&mut Transform3d, With<Companion>>) {
     let dt = time.delta_secs();
     for mut transform in &mut query {
@@ -288,9 +375,59 @@ fn spin_companion(time: Res<Time>, mut query: Query<&mut Transform3d, With<Compa
     }
 }
 
-/// Echo the touch-screen state to its HUD line. Reads the standard Bevy
-/// [`Touches`] resource that `bevy_nds` populates from the DS digitizer, showing
-/// the live pixel coordinates while the pen is down and `--` when it is up.
+/// Drive `Transform3d.translation` from `MapPos` each frame. Cheap (a handful
+/// of entities) and keeps map position the source of truth.
+fn sync_map_to_world(
+    input: Res<ButtonInput<DsButton>>,
+    mut query: Query<(&MapPos, &mut Transform3d, Option<&Player>)>,
+) {
+    for (pos, mut transform, is_player) in &mut query {
+        transform.translation = pos.to_world();
+        if is_player.is_some() {
+            tumble_player(&input, &mut transform);
+        }
+    }
+}
+
+// --- Map display -------------------------------------------------------------
+
+/// Compose each map row from the static tile data, overlaying `@` for the
+/// player and `O` for the companion. The text renderer's per-cell diff turns
+/// "the player moved one cell" into two changed tiles (old cell back to `.`,
+/// new cell to `@`) rather than a full redraw.
+fn update_map_display(
+    map: Res<Map>,
+    player: Query<&MapPos, With<Player>>,
+    companion: Query<&MapPos, With<Companion>>,
+    mut rows: Query<(&MapRow, &mut DsText)>,
+) {
+    let player = player.iter().next().copied();
+    let companion = companion.iter().next().copied();
+    for (MapRow(r), mut text) in &mut rows {
+        let row = *r as usize;
+        text.0.clear();
+        for col in 0..MAP_W {
+            let mut byte = map.tiles[row][col];
+            if let Some(p) = companion
+                && p.col as usize == col
+                && p.row as usize == row
+            {
+                byte = b'O';
+            }
+            if let Some(p) = player
+                && p.col as usize == col
+                && p.row as usize == row
+            {
+                byte = b'@';
+            }
+            text.0.push(byte as char);
+        }
+    }
+}
+
+// --- HUDs --------------------------------------------------------------------
+
+/// Echo the touch-screen state to its HUD line.
 fn update_touch_hud(touches: Res<Touches>, mut query: Query<&mut DsText, With<TouchHud>>) {
     for mut text in &mut query {
         text.0.clear();
@@ -304,9 +441,9 @@ fn update_touch_hud(touches: Res<Touches>, mut query: Query<&mut DsText, With<To
 }
 
 /// Name the entity the pen is over, by checking it against the teapot markers.
-fn pick_name(pick: &TouchPick, model: Entity, companion: Entity) -> &'static str {
+fn pick_name(pick: &TouchPick, player: Entity, companion: Entity) -> &'static str {
     match pick.entity {
-        Some(e) if e == model => "player",
+        Some(e) if e == player => "player",
         Some(e) if e == companion => "companion",
         Some(_) => "?",
         None => "none",
@@ -314,28 +451,26 @@ fn pick_name(pick: &TouchPick, model: Entity, companion: Entity) -> &'static str
 }
 
 /// Report which teapot the pen is hovering over, using the engine's hardware
-/// [`TouchPick`] result. This is the "did we touch teapot 1 or 2" readout: the
-/// 3D engine picks whichever mesh is under the pen each frame.
+/// [`TouchPick`] result.
 fn update_pick_hud(
     pick: Res<TouchPick>,
-    model: Single<Entity, With<Model>>,
+    player: Single<Entity, With<Player>>,
     companion: Single<Entity, With<Companion>>,
     mut query: Query<&mut DsText, With<PickHud>>,
 ) {
-    let name = pick_name(&pick, *model, *companion);
+    let name = pick_name(&pick, *player, *companion);
     for mut text in &mut query {
         text.0.clear();
         let _ = write!(text.0, "picked: {name}");
     }
 }
 
-/// Tapping a teapot selects it: the tapped teapot tumbles and a click SFX plays.
-///
-/// Selection is gated on the [`Gesture::Tap`] event (a quick press-and-release in
-/// place), not merely the pen touching a teapot — so dragging the pen across the
-/// teapots, or swiping, doesn't trigger it. The tap is emitted on pen-up, which
-/// reaches this `Update` system before [`TouchPick`] is cleared in `Last`, so
-/// `pick.entity` still holds whatever teapot was under the pen during the press.
+/// Tapping a teapot tumbles it and fires a click SFX. Gated on the
+/// [`Gesture::Tap`] event (a quick press-and-release in place) so dragging /
+/// swiping across the teapots doesn't trigger it. The tap is emitted on
+/// pen-up, which reaches `Update` before [`TouchPick`] is cleared in `Last`,
+/// so `pick.entity` still holds whatever teapot was under the pen during the
+/// press.
 fn poke_picked(
     pick: Res<TouchPick>,
     mut gestures: EventReader<GestureEvent>,
@@ -356,9 +491,9 @@ fn poke_picked(
     }
 }
 
-/// Toggle the background music on and off with START, demonstrating the
-/// declarative [`Music`] resource: setting/clearing the desired track is all the
-/// game does; the backend reconciles the hardware.
+/// Toggle the background music on and off with START. Demonstrates the
+/// declarative [`Music`] resource: the game sets the desired track and the
+/// backend reconciles the hardware.
 fn toggle_music(input: Res<ButtonInput<DsButton>>, mut music: ResMut<Music>) {
     if input.just_pressed(DsButton::Start) {
         if music.is_playing() {
@@ -388,9 +523,7 @@ fn update_audio_hud(
     }
 }
 
-/// Show the latest touch gesture on its HUD line. Reads the `GestureEvent`
-/// stream that `bevy_nds` derives from the touch input — tap, long-press,
-/// 4-direction swipe and drag, with no per-game bookkeeping.
+/// Show the latest touch gesture on its HUD line.
 fn update_gesture_hud(
     mut events: EventReader<GestureEvent>,
     mut query: Query<&mut DsText, With<GestureHud>>,
@@ -417,30 +550,21 @@ fn update_gesture_hud(
     }
 }
 
-/// The opposite screen.
-fn other(screen: DsScreen) -> DsScreen {
-    match screen {
-        DsScreen::Top => DsScreen::Bottom,
-        DsScreen::Bottom => DsScreen::Top,
-    }
-}
-
-/// Refresh the HUD from the `Time`, `Fps` and `Display3d` resources.
+/// Refresh the HUD from `Time`, `Fps`, and the player's map cell.
 fn update_hud(
     time: Res<Time>,
     fps: Res<Fps>,
-    display: Res<Display3d>,
+    player: Query<&MapPos, With<Player>>,
     mut query: Query<&mut DsText, With<Hud>>,
 ) {
     let secs = time.elapsed_secs() as u32;
     let fps = fps.0;
-    let model_on = match display.screen {
-        DsScreen::Top => "top",
-        DsScreen::Bottom => "bottom",
+    let (pc, pr) = match player.iter().next() {
+        Some(p) => (p.col, p.row),
+        None => (0, 0),
     };
     for mut text in &mut query {
-        // Reuse the existing String's capacity instead of allocating anew.
         text.0.clear();
-        let _ = write!(text.0, "t={secs:>4}s fps={fps:>2.0} pot={model_on}");
+        let _ = write!(text.0, "t={secs:>4}s fps={fps:>2.0} cell=({pc:>2},{pr:>2})");
     }
 }

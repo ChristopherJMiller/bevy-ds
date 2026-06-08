@@ -1,0 +1,22 @@
+[package]
+name = "bevy_nds_text"
+version = "0.1.0"
+edition = "2024"
+description = "Tile-console text rendering as an ECS extraction step, for bevy_nds (no_std)."
+
+# Mirrors desktop Bevy's "extract entities to the GPU" shape — but the "GPU" is
+# the DS text console and the draw call is libnds `printf`. Double-buffered and
+# diffed at the grid level to avoid flicker. Optional: games can drop this crate
+# and use only sprites / 3D.
+
+[lib]
+
+[dependencies]
+bevy_nds_video = { path = "../bevy_nds_video" }
+
+bevy_app = { version = "0.16", default-features = false, features = [
+  "critical-section",
+] }
+bevy_ecs = { version = "0.16", default-features = false, features = [
+  "critical-section",
+] }

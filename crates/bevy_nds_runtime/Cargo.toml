@@ -1,0 +1,25 @@
+[package]
+name = "bevy_nds_runtime"
+version = "0.1.0"
+edition = "2024"
+description = "Bare-metal runtime (allocator, panic, critical-section, vblank runner) for bevy_nds (no_std)."
+
+# This crate is what makes `no_std` Rust actually *runnable* on the DS ARM9: it
+# defines the program's `#[global_allocator]` (newlib heap), `#[panic_handler]`,
+# and the `critical-section` impl Bevy's atomics rely on, plus the vblank-driven
+# `run()` loop that owns the program. These items must exist exactly once in
+# the final binary, so consuming crates depend on this transitively.
+#
+# The bare-metal pieces only compile when targeting the DS (vendor=nintendo);
+# on the host they're inert so dependents can still link against std for tests.
+
+[lib]
+
+[dependencies]
+bevy_app = { version = "0.16", default-features = false, features = [
+  "critical-section",
+] }
+
+# critical-section implementation hook (single-core: toggle the DS interrupt
+# master enable register). `restore-state-bool` matches our acquire/release.
+critical-section = { version = "1.1", features = ["restore-state-bool"] }

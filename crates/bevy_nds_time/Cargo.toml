@@ -1,0 +1,21 @@
+[package]
+name = "bevy_nds_time"
+version = "0.1.0"
+edition = "2024"
+description = "Hardware-timer-driven Bevy `Time` resource for the Nintendo DS (no_std)."
+
+# Drives Bevy's standard `Time` resource off the DS bus-clock hardware timer, so
+# game code can use `Res<Time>` and it reflects real wall-clock time.
+
+[lib]
+
+[dependencies]
+bevy_app = { version = "0.16", default-features = false, features = [
+  "critical-section",
+] }
+bevy_ecs = { version = "0.16", default-features = false, features = [
+  "critical-section",
+] }
+bevy_time = { version = "0.16", default-features = false, features = [
+  "critical-section",
+] }

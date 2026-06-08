@@ -1,4 +1,4 @@
-//! Tile-console rendering, expressed as an ECS extraction step.
+//! Tile-console text rendering, expressed as an ECS extraction step.
 //!
 //! Full Bevy renders entities to the GPU via wgpu; that stack cannot run on the
 //! DS. We keep the *shape* of that model — entities describe what to draw, a
@@ -21,6 +21,8 @@
 //! them into `front`. The display is never blanked, so there is no flicker, and
 //! a typical frame only touches a handful of tiles.
 
+#![cfg_attr(not(test), no_std)]
+
 extern crate alloc;
 
 use alloc::string::String;
@@ -28,9 +30,18 @@ use core::ffi::{c_char, c_uint};
 
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
+use bevy_nds_video::{Consoles, DsScreen, PrintConsole};
 
-use crate::ffi;
-use crate::screen::{Consoles, DsScreen};
+#[allow(non_snake_case)]
+unsafe extern "C" {
+    /// Make `console` the target of subsequent console output (`printf`, etc.).
+    /// See `<nds/arm9/console.h>`.
+    fn consoleSelect(console: *mut PrintConsole) -> *mut PrintConsole;
+    /// Clear the active console.
+    fn consoleClear();
+    /// printf to the active console (libnds redirects stdout to the console).
+    fn printf(fmt: *const c_char, ...) -> core::ffi::c_int;
+}
 
 /// Console grid dimensions (libnds default font is 32x24 tiles).
 const COLS: usize = 32;
@@ -135,8 +146,8 @@ impl Grid {
     ///
     /// # Safety
     /// `console` must be a valid libnds console pointer.
-    unsafe fn flush(&mut self, console: *mut ffi::PrintConsole) {
-        unsafe { ffi::consoleSelect(console) };
+    unsafe fn flush(&mut self, console: *mut PrintConsole) {
+        unsafe { consoleSelect(console) };
 
         self.diff_runs(|row, col, bytes| {
             // Copy into a NUL-terminated buffer for `%s`.
@@ -146,7 +157,7 @@ impl Grid {
 
             // ANSI cursor move to 1-based (row, col), then print the run.
             unsafe {
-                ffi::printf(
+                printf(
                     c"\x1b[%u;%uH%s".as_ptr(),
                     (row + 1) as c_uint,
                     (col + 1) as c_uint,
@@ -177,10 +188,10 @@ impl Buffers {
 /// `front` buffers match the now-blank display.
 fn setup_buffers(mut commands: Commands, consoles: Res<Consoles>) {
     unsafe {
-        ffi::consoleSelect(consoles.handle(DsScreen::Top));
-        ffi::consoleClear();
-        ffi::consoleSelect(consoles.handle(DsScreen::Bottom));
-        ffi::consoleClear();
+        consoleSelect(consoles.handle(DsScreen::Top).as_ptr());
+        consoleClear();
+        consoleSelect(consoles.handle(DsScreen::Bottom).as_ptr());
+        consoleClear();
     }
     commands.insert_resource(Buffers {
         top: Grid::new(),
@@ -209,15 +220,17 @@ fn render(
     }
 
     unsafe {
-        buffers.top.flush(consoles.handle(DsScreen::Top));
-        buffers.bottom.flush(consoles.handle(DsScreen::Bottom));
+        buffers.top.flush(consoles.handle(DsScreen::Top).as_ptr());
+        buffers
+            .bottom
+            .flush(consoles.handle(DsScreen::Bottom).as_ptr());
     }
 }
 
 /// Draws [`Glyph`] / [`DsText`] entities to the DS text consoles each frame.
-pub struct RenderPlugin;
+pub struct TextRenderPlugin;
 
-impl Plugin for RenderPlugin {
+impl Plugin for TextRenderPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup_buffers)
             .add_systems(Last, render);

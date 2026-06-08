@@ -1,0 +1,20 @@
+[package]
+name = "bevy_nds_nitrofs"
+version = "0.1.0"
+edition = "2024"
+description = "ROM filesystem (NitroFS) mounting & reading for bevy_nds (no_std)."
+
+# Mounts the read-only filesystem packed into the .nds ROM (the `nitro:/` drive)
+# at PreStartup and exposes the resulting state as a `NitroFs` resource, plus
+# `read_file` / `flush_dcache` helpers. Shared by `bevy_nds_3d` (display lists),
+# `bevy_nds_audio` (soundbank) and any future asset-loading subsystem.
+
+[lib]
+
+[dependencies]
+bevy_app = { version = "0.16", default-features = false, features = [
+  "critical-section",
+] }
+bevy_ecs = { version = "0.16", default-features = false, features = [
+  "critical-section",
+] }

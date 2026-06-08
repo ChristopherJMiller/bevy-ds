@@ -4,24 +4,46 @@
 `.nds` ROM that boots in an emulator or on hardware. The build runs entirely
 inside a Nix dev shell.
 
-There are several crates:
+The workspace follows a "one capability, one crate" pattern: every DS subsystem
+(video, input, gestures, text, audio, 3D, …) is its own additive crate. Games
+depend on the **`bevy_nds`** umbrella, which re-exports everything and bundles
+the platform layer as a single `DsPlugins` group; they can also depend on
+individual subcrates directly and opt out of whatever they don't need (e.g.
+drop `bevy_nds_text` for a sprite-only game).
 
-- **`bevy_nds`** (`crates/bevy_nds`) — the library. It binds Bevy's `no_std`
-  ECS/App core to the DS hardware through [libnds](https://github.com/blocksds/libnds)
-  and exposes it as Bevy plugins, components and resources.
-- **`bevy_nds_3d`** (`crates/bevy_nds_3d`) — an add-on that drives the DS
-  hardware 3D engine, with `Transform3d`, `DsMesh`, a `Camera3d` resource,
-  view-frustum culling, and model loading (baked or from NitroFS at runtime).
-  Depends on `bevy_nds`.
+- **`bevy_nds`** (`crates/bevy_nds`) — umbrella crate. Re-exports the platform
+  subcrates and bundles them as `DsPlugins`.
+- **`bevy_nds_runtime`** (`crates/bevy_nds_runtime`) — bare-metal items
+  (`#[global_allocator]`, `#[panic_handler]`, `critical-section`) plus the
+  vblank-driven `run()` loop. Must appear in the final binary exactly once.
+- **`bevy_nds_video`** (`crates/bevy_nds_video`) — `DsScreen`, `Consoles`, and
+  the `VideoPlugin` that brings up a text console on both LCDs.
+- **`bevy_nds_input`** (`crates/bevy_nds_input`) — buttons + touch surfaced
+  through Bevy's standard `ButtonInput` / `Touches`.
+- **`bevy_nds_gesture`** (`crates/bevy_nds_gesture`) — pure tap/swipe/drag
+  recognition over the touch stream.
+- **`bevy_nds_time`** (`crates/bevy_nds_time`) — drives Bevy's `Time` resource
+  off the DS bus-clock hardware timer.
+- **`bevy_nds_diagnostics`** (`crates/bevy_nds_diagnostics`) — smoothed `Fps`
+  resource.
+- **`bevy_nds_text`** (`crates/bevy_nds_text`) — tile-console text renderer,
+  expressed as an ECS extraction step (diffed, flicker-free).
+- **`bevy_nds_nitrofs`** (`crates/bevy_nds_nitrofs`) — mounts the ROM filesystem
+  in `PreStartup` and provides `read_file` / `flush_dcache`. Shared by `bevy_nds_3d`,
+  `bevy_nds_audio`, and any future asset-loading subsystem.
+- **`bevy_nds_3d`** (`crates/bevy_nds_3d`) — hardware 3D backend: `Transform3d`,
+  `DsMesh`, `Camera3d`, view-frustum culling, model loading (baked or from
+  NitroFS at runtime).
 - **`bevy_nds_3d_obj`** (`crates/bevy_nds_3d_obj`) — host-side Wavefront OBJ →
-  display-list encoder. The single source of truth for the geometry packing,
-  shared by the macro, the converter and the build script.
-- **`bevy_nds_3d_macros`** (`crates/bevy_nds_3d_macros`) — the `include_obj!`
-  proc-macro, which bakes a model into the ROM binary at compile time.
+  display-list encoder. Single source of truth for the geometry packing.
+- **`bevy_nds_3d_macros`** (`crates/bevy_nds_3d_macros`) — `include_obj!` proc-macro.
 - **`bevy_nds_3d_cull`** (`crates/bevy_nds_3d_cull`) — pure, host-testable
   view-frustum culling math.
-- **`obj2dl`** (`crates/obj2dl`) — host CLI + library that bakes OBJ models into
-  `.dl` assets for NitroFS; used by the demo's `build.rs`.
+- **`bevy_nds_audio`** (`crates/bevy_nds_audio`) — maxmod-backed music + SFX.
+- **`obj2dl`** (`crates/obj2dl`) — host CLI/lib that bakes OBJ models into `.dl`
+  NitroFS assets; used by the demo's `build.rs`.
+- **`wav2bank`** (`crates/wav2bank`) — host CLI/lib that wraps `mmutil` to bake
+  WAVs into `soundbank.bin`.
 - **`bevy-ds`** (the root crate) — the demo. Plain Bevy components and systems,
   with no FFI, allocator or panic handler.
 
@@ -50,18 +72,19 @@ Bevy's core has been `no_std`-capable since 0.16, so `bevy_nds` uses those piece
 and supplies the platform layer itself. DS hardware is mapped onto ordinary Bevy
 concepts so game code doesn't deal with it directly:
 
-| DS hardware              | `bevy_nds` exposes                                                    | Plugin              |
-| ------------------------ | -------------------------------------------------------------------- | ------------------- |
-| Top / bottom LCDs        | `DsScreen::{Top,Bottom}` component + `Consoles` resource             | `VideoPlugin`       |
-| Buttons (`REG_KEYINPUT`) | the standard `ButtonInput<DsButton>` resource                        | `InputPlugin`       |
-| Touch screen (`touchRead`) | the standard `Touches` resource + `TouchInput` events              | `InputPlugin`       |
-| Touch gestures (derived) | `Gestures` resource + `GestureEvent` events (tap/long-press/swipe/drag) | `GesturePlugin`  |
-| 3D touch picking         | `TouchPick` resource (mesh entity under the pen, via position test)  | `Ds3dPlugin`        |
-| Vertical-blank @ ~60 Hz  | a `set_runner` frame loop + a real `Time` resource (hardware timer)  | `TimePlugin`        |
-| —                        | a smoothed `Fps` resource for diagnostics                            | `DiagnosticsPlugin` |
-| Tiled text background    | `Glyph` / `DsText` + `TilePos`, drawn by an extraction system        | `RenderPlugin`      |
-| 3D geometry engine       | `Transform3d` + `DsMesh` + a `Camera3d` resource (in `bevy_nds_3d`)  | `Ds3dPlugin`        |
-| ARM7 sound (maxmod)      | `Music` resource (looping) + `PlaySfx` events (in `bevy_nds_audio`)  | `AudioPlugin`       |
+| DS hardware              | Exposed as                                                            | Subcrate / plugin                                |
+| ------------------------ | --------------------------------------------------------------------- | ------------------------------------------------ |
+| Top / bottom LCDs        | `DsScreen::{Top,Bottom}` component + `Consoles` resource              | `bevy_nds_video::VideoPlugin`                    |
+| Buttons (`REG_KEYINPUT`) | the standard `ButtonInput<DsButton>` resource                         | `bevy_nds_input::InputPlugin`                    |
+| Touch screen (`touchRead`) | the standard `Touches` resource + `TouchInput` events               | `bevy_nds_input::InputPlugin`                    |
+| Touch gestures (derived) | `Gestures` resource + `GestureEvent` events                           | `bevy_nds_gesture::GesturePlugin`                |
+| ROM filesystem (NitroFS) | `NitroFs` resource + `read_file` / `flush_dcache`                     | `bevy_nds_nitrofs::NitroFsPlugin`                |
+| 3D touch picking         | `TouchPick` resource (mesh entity under the pen, via position test)   | `bevy_nds_3d::Ds3dPlugin`                        |
+| Vertical-blank @ ~60 Hz  | a `set_runner` frame loop + a real `Time` resource (hardware timer)   | `bevy_nds_runtime::run` + `bevy_nds_time::TimePlugin` |
+| —                        | a smoothed `Fps` resource for diagnostics                             | `bevy_nds_diagnostics::DiagnosticsPlugin`        |
+| Tiled text background    | `Glyph` / `DsText` + `TilePos`, drawn by an extraction system         | `bevy_nds_text::TextRenderPlugin`                |
+| 3D geometry engine       | `Transform3d` + `DsMesh` + a `Camera3d` resource                      | `bevy_nds_3d::Ds3dPlugin`                        |
+| ARM7 sound (maxmod)      | `Music` resource (looping) + `PlaySfx` events                         | `bevy_nds_audio::AudioPlugin`                    |
 
 `DsPlugins` bundles all of it, and `bevy_nds::run(app)` installs the runner that
 owns the frame loop (`swiWaitForVBlank` → `app.update()`).
@@ -89,13 +112,17 @@ Game Boy Advance.
 
 ### Bare-metal runtime
 
-`bevy_nds` also provides the pieces a bare-metal Rust program needs
-(`crates/bevy_nds/src/runtime.rs`):
+`bevy_nds_runtime` provides the pieces a bare-metal Rust program needs:
 
 - a `#[global_allocator]` on top of newlib's heap (set up by the BlocksDS crt0),
 - a `#[panic_handler]`, and
 - a `critical-section` impl that toggles the DS interrupt-enable register, which
   is what Bevy's atomics (`portable-atomic`) sit on.
+
+These items must appear in the final binary exactly once; depending on the
+`bevy_nds` umbrella pulls them in transitively. They're `cfg`-gated to the DS
+target (`target_vendor = "nintendo"`) so the subcrates can still link against
+`std` for host unit tests.
 
 ## Prerequisites
 
@@ -138,9 +165,11 @@ For the smaller, faster build, append `release`, e.g. `just run release`.
 
 ### Testing
 
-The hardware-independent logic has unit tests: the render diffing, the
-timer-tick→nanoseconds conversion, the FPS smoothing, the button-mask mapping
-(`bevy_nds`), the OBJ→display-list packing (`bevy_nds_3d_obj`), the
+The hardware-independent logic has unit tests, one batch per subcrate: the
+render diffing (`bevy_nds_text`), the timer-tick→nanoseconds conversion
+(`bevy_nds_time`), the FPS smoothing (`bevy_nds_diagnostics`), the button-mask
+mapping and touch-state diff (`bevy_nds_input`), the gesture state machine
+(`bevy_nds_gesture`), the OBJ→display-list packing (`bevy_nds_3d_obj`), the
 view-frustum culling math (`bevy_nds_3d_cull`), the WAV loop-injection and
 soundbank-ID parsing (`wav2bank`), and the audio volume/panning quantisation
 (`bevy_nds_audio`). They run on the host, not the DS:
@@ -171,25 +200,24 @@ build.rs                        injects libnds/specs/libgcc link args from $BLOC
 Cargo.toml                      workspace root + the `bevy-ds` game binary
 src/main.rs                     the game: pure Bevy components + systems (no FFI)
 Justfile                        build / rom / run / preview tasks
-crates/bevy_nds/                the reusable Bevy <-> Nintendo DS library
-  src/lib.rs                      crate root, plugin/component re-exports, run()
-  src/ffi.rs                      hand-written FFI to the libnds functions we use
-  src/runtime.rs                  allocator, panic handler, critical-section impl
-  src/screen.rs                   DsScreen, Consoles, VideoPlugin (both screens)
-  src/input.rs                    DsButton + ButtonInput<DsButton>, Touches (InputPlugin)
-  src/time.rs                     real-time Time from the hardware timer (TimePlugin)
-  src/diagnostics.rs              smoothed Fps resource (DiagnosticsPlugin)
-  src/render.rs                   Glyph/DsText/TilePos + diffed render system (RenderPlugin)
-  src/runner.rs                   the vblank App runner + DsPlugins group
+crates/bevy_nds/                umbrella: re-exports + DsPlugins plugin group
+crates/bevy_nds_runtime/        allocator, panic handler, critical-section, vblank run()
+crates/bevy_nds_video/          DsScreen + Consoles + VideoPlugin (both LCDs)
+crates/bevy_nds_input/          DsButton + ButtonInput<DsButton>, Touches (InputPlugin)
+crates/bevy_nds_gesture/        tap/long-press/swipe/drag from the touch stream (GesturePlugin)
+crates/bevy_nds_time/           real-time Time from the hardware timer (TimePlugin)
+crates/bevy_nds_diagnostics/    smoothed Fps resource (DiagnosticsPlugin)
+crates/bevy_nds_text/           Glyph/DsText/TilePos + diffed render system (TextRenderPlugin)
+crates/bevy_nds_nitrofs/        NitroFsPlugin + read_file + flush_dcache (shared by 3d/audio)
 crates/bevy_nds_3d/             hardware 3D backend (Transform3d, DsMesh, Camera3d)
   src/lib.rs                      meshes, culling, NitroFS loading, render system
-  src/ffi.rs                      FFI to the geometry engine + NitroFS / file I/O
+  src/ffi.rs                      FFI to the geometry engine
 crates/bevy_nds_3d_obj/         host OBJ -> display-list encoder (shared packing math)
 crates/bevy_nds_3d_macros/      include_obj! proc-macro (bakes a model into the ROM)
 crates/bevy_nds_3d_cull/        pure, host-testable view-frustum culling math
 crates/bevy_nds_audio/          maxmod audio backend (Music resource, PlaySfx events)
   src/lib.rs                      AudioPlugin, Music/PlaySfx API, soundbank loading
-  src/ffi.rs                      FFI to the maxmod ARM9 API (+ soundEnable, nitroFSInit)
+  src/ffi.rs                      FFI to the maxmod ARM9 API
   src/sfx.rs                      pure, host-testable volume/panning + load bookkeeping
 crates/wav2bank/                host CLI/lib: WAV -> soundbank.bin via mmutil (used by build.rs)
 crates/obj2dl/                  host CLI/lib: OBJ -> .dl NitroFS asset (used by build.rs)
@@ -276,7 +304,7 @@ maxmod music with a click SFX on teapot selection (`AudioPlugin`), and the HUD.
   helper that lives in it.
 - **Atomics.** The DS has no atomic compare-and-swap, so `portable-atomic`
   (pulled in by Bevy) is backed by the `critical-section` impl in
-  `crates/bevy_nds/src/runtime.rs`, which disables interrupts around the section.
+  `crates/bevy_nds_runtime/src/lib.rs`, which disables interrupts around the section.
 - **Packaging.** `ndstool` combines the ARM9 ELF with a stock BlocksDS ARM7 core
   (`arm7_minimal.elf`) and the `build/nitrofs` asset directory (`-d`) into the
   final `.nds`.
@@ -289,9 +317,10 @@ maxmod music with a click SFX on teapot selection (`AudioPlugin`), and the HUD.
 
 - Text rendering goes through the libnds text console. Sprite/tile graphics
   would use libnds OAM/backgrounds (and `grit` for asset conversion, already in
-  the shell) behind the same `RenderPlugin` extraction model.
-- No audio (maxmod) or Wi-Fi (dswifi). Swap in the matching ARM7 core and link
-  `-lmm9` / `-ldswifi9` to enable them.
+  the shell) as a sibling `bevy_nds_sprite` crate, behind the same extraction
+  model as `bevy_nds_text`. Tracked in issue #3.
+- No Wi-Fi (dswifi). Add a `bevy_nds_wifi` crate alongside `bevy_nds_audio`
+  (link `-ldswifi9`, embed the matching ARM7 core).
 - Keep entity counts modest; the DS has ~4 MB of RAM.
 
 ## References

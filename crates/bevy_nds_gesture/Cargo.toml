@@ -1,0 +1,30 @@
+[package]
+name = "bevy_nds_gesture"
+version = "0.1.0"
+edition = "2024"
+description = "Touch gestures (tap/long-press/swipe/drag) derived from Bevy's `Touches` for the Nintendo DS (no_std)."
+
+# Pure bookkeeping over the per-frame touch position that `bevy_nds_input`
+# already produces — no FFI. Surfaces gestures both as a `Gestures` resource
+# (polling) and a `GestureEvent` stream (events), matching how Bevy exposes
+# other input.
+
+[lib]
+
+[dependencies]
+bevy_app = { version = "0.16", default-features = false, features = [
+  "critical-section",
+] }
+bevy_ecs = { version = "0.16", default-features = false, features = [
+  "critical-section",
+] }
+bevy_input = { version = "0.16", default-features = false, features = [
+  "critical-section",
+  "libm",
+] }
+bevy_math = { version = "0.16", default-features = false, features = [
+  "libm",
+] }
+bevy_time = { version = "0.16", default-features = false, features = [
+  "critical-section",
+] }

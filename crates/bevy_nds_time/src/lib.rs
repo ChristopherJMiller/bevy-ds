@@ -7,13 +7,22 @@
 //! `Res<Time>` API (`elapsed_secs`, `delta_secs`, ...) and it reflects true
 //! wall-clock time — including any frames that ran long.
 
+#![cfg_attr(not(test), no_std)]
+
+use core::ffi::c_int;
 use core::time::Duration;
 
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 use bevy_time::Time;
 
-use crate::ffi;
+unsafe extern "C" {
+    /// Start a free-running hardware timer (uses timers `timer` and `timer+1`
+    /// as a 32-bit cascade) counting at the bus clock. See `<nds/arm9/timers.h>`.
+    fn cpuStartTiming(timer: c_int);
+    /// Bus-clock ticks elapsed since [`cpuStartTiming`].
+    fn cpuGetTiming() -> u32;
+}
 
 /// DS bus clock in Hz (see `BUS_CLOCK` in libnds `timers.h`).
 const BUS_CLOCK: u64 = 33_513_982;
@@ -33,14 +42,14 @@ struct HardwareClock {
 
 fn start_clock(mut commands: Commands) {
     let last_ticks = unsafe {
-        ffi::cpuStartTiming(0);
-        ffi::cpuGetTiming()
+        cpuStartTiming(0);
+        cpuGetTiming()
     };
     commands.insert_resource(HardwareClock { last_ticks });
 }
 
 fn advance_time(mut time: ResMut<Time>, mut clock: ResMut<HardwareClock>) {
-    let now = unsafe { ffi::cpuGetTiming() };
+    let now = unsafe { cpuGetTiming() };
     let delta_ticks = now.wrapping_sub(clock.last_ticks);
     clock.last_ticks = now;
 

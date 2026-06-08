@@ -13,7 +13,8 @@ description = "Hardware-accelerated 3D for bevy_nds, driving the Nintendo DS 3D 
 [lib]
 
 [dependencies]
-bevy_nds = { path = "../bevy_nds" }
+bevy_nds_video = { path = "../bevy_nds_video" }
+bevy_nds_nitrofs = { path = "../bevy_nds_nitrofs" }
 bevy_nds_3d_macros = { path = "../bevy_nds_3d_macros" }
 bevy_nds_3d_cull = { path = "../bevy_nds_3d_cull" }
 

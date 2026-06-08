@@ -161,18 +161,23 @@ impl Plugin for AudioPlugin {
             .init_resource::<Music>()
             .init_resource::<AudioBackend>()
             .add_event::<PlaySfx>()
-            .add_systems(PreStartup, init_audio)
+            // NitroFS must be mounted before `mmInitDefault` can find the
+            // soundbank at `nitro:/`. `bevy_nds_nitrofs::NitroFsPlugin` (added
+            // by `DsPlugins`) handles the mount; we just order after it.
+            .add_systems(
+                PreStartup,
+                init_audio.after(bevy_nds_nitrofs::init_nitrofs),
+            )
             .add_systems(Update, (drive_music, play_sfx_events));
     }
 }
 
-/// Mount the soundbank and power up the sound hardware.
+/// Power up the sound hardware and load the soundbank from NitroFS.
 fn init_audio(mut audio: ResMut<Audio>) {
-    // SAFETY: one-shot hardware bring-up on the single ARM9 core. `nitroFSInit`
-    // is idempotent, so it is safe even if another plugin already mounted the
-    // filesystem; `mmInitDefault` reads the NUL-terminated soundbank path.
+    // SAFETY: one-shot hardware bring-up on the single ARM9 core. `mmInitDefault`
+    // reads the NUL-terminated soundbank path; the filesystem was mounted by
+    // `bevy_nds_nitrofs::init_nitrofs` in this same PreStartup pass (ordered).
     let ready = unsafe {
-        ffi::nitroFSInit(core::ptr::null());
         let ok = ffi::mmInitDefault(SOUNDBANK_PATH.as_ptr() as *const c_char);
         ffi::soundEnable();
         ok != 0

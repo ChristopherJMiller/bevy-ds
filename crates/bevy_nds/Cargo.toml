@@ -2,35 +2,37 @@
 name = "bevy_nds"
 version = "0.1.0"
 edition = "2024"
-description = "A small Bevy integration layer for Nintendo DS homebrew (no_std, libnds)."
+description = "Run Bevy's no_std ECS on the Nintendo DS — umbrella crate re-exporting the platform subcrates."
 
-# This crate is the reusable "engine" layer: it wires Bevy's no_std ECS/App core
-# to the DS hardware through libnds and exposes everything as Bevy plugins,
-# components and resources. Games depend on this crate and stay free of any FFI.
+# The umbrella crate. It re-exports every platform-layer subcrate (video, input,
+# gesture, time, diagnostics, text, nitrofs) and the bare-metal runtime, and
+# bundles them as a single `DsPlugins` plugin group. Games depend on this crate
+# and `use bevy_nds::prelude::*;` to get the whole platform; they never touch
+# FFI directly.
+#
+# The bare-metal items (global allocator, panic handler, critical-section) live
+# in `bevy_nds_runtime`, which this crate pulls in transitively — so the final
+# game binary picks them up by depending on `bevy_nds`.
 
 [lib]
-# An rlib that is statically linked into the (no_std) game binary. The crate
-# provides the program's global allocator, panic handler and critical-section
-# implementation, so it must be present exactly once in the final binary.
 
 [dependencies]
+bevy_nds_runtime = { path = "../bevy_nds_runtime" }
+bevy_nds_video = { path = "../bevy_nds_video" }
+bevy_nds_input = { path = "../bevy_nds_input" }
+bevy_nds_gesture = { path = "../bevy_nds_gesture" }
+bevy_nds_time = { path = "../bevy_nds_time" }
+bevy_nds_diagnostics = { path = "../bevy_nds_diagnostics" }
+bevy_nds_text = { path = "../bevy_nds_text" }
+bevy_nds_nitrofs = { path = "../bevy_nds_nitrofs" }
+
 bevy_app = { version = "0.16", default-features = false, features = [
-  "critical-section",
-] }
-bevy_ecs = { version = "0.16", default-features = false, features = [
   "critical-section",
 ] }
 bevy_input = { version = "0.16", default-features = false, features = [
   "critical-section",
   "libm",
 ] }
-bevy_math = { version = "0.16", default-features = false, features = [
-  "libm",
-] }
 bevy_time = { version = "0.16", default-features = false, features = [
   "critical-section",
 ] }
-
-# critical-section implementation hook (single-core: toggle the DS interrupt
-# master enable register). `restore-state-bool` matches our acquire/release.
-critical-section = { version = "1.1", features = ["restore-state-bool"] }

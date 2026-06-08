@@ -1,0 +1,26 @@
+[package]
+name = "bevy_nds_input"
+version = "0.1.0"
+edition = "2024"
+description = "Nintendo DS buttons & touch surfaced through Bevy's standard input abstractions (no_std)."
+
+# Reads the DS hardware key/touch state each frame and feeds Bevy's standard
+# `ButtonInput<DsButton>` resource and `Touches` / `TouchInput` pipeline. Pairs
+# with `bevy_nds_gesture` for derived touch gestures.
+
+[lib]
+
+[dependencies]
+bevy_app = { version = "0.16", default-features = false, features = [
+  "critical-section",
+] }
+bevy_ecs = { version = "0.16", default-features = false, features = [
+  "critical-section",
+] }
+bevy_input = { version = "0.16", default-features = false, features = [
+  "critical-section",
+  "libm",
+] }
+bevy_math = { version = "0.16", default-features = false, features = [
+  "libm",
+] }

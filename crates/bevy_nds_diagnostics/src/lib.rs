@@ -1,8 +1,10 @@
 //! Lightweight runtime diagnostics, surfaced as ECS resources.
 //!
 //! Right now this is just a smoothed frames-per-second counter derived from the
-//! real per-frame delta provided by [`crate::time`]. Games read `Res<Fps>` and
-//! display it however they like.
+//! real per-frame delta provided by [`bevy_nds_time`](https://docs.rs/bevy_nds_time).
+//! Games read `Res<Fps>` and display it however they like.
+
+#![cfg_attr(not(test), no_std)]
 
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;

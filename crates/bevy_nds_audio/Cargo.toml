@@ -15,7 +15,7 @@ description = "Maxmod-backed audio for bevy_nds, mixing music & sound effects on
 [lib]
 
 [dependencies]
-bevy_nds = { path = "../bevy_nds" }
+bevy_nds_nitrofs = { path = "../bevy_nds_nitrofs" }
 
 bevy_app = { version = "0.16", default-features = false, features = [
   "critical-section",

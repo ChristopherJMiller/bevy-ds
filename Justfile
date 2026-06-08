@@ -43,18 +43,26 @@ check:
 # Crates split into two groups by dependency shape:
 # - `bevy_nds_3d_obj` / `obj2dl` / `bevy_nds_3d_macros` have no external deps, so
 #   they build cleanly against the prebuilt host std (plain `--target host`).
-# - `bevy_nds` and `bevy_nds_3d_cull` pull in crates compiled against `core`
-#   (Bevy; `libm`), so the host test needs `std` built from source to keep a
-#   single `core` (avoiding a duplicate-lang-item clash) and `panic = "unwind"`
-#   to match the test harness. `wav2bank` has no external deps, but a *clean*
-#   host build still trips the duplicate-`core` clash under the project's global
-#   `build-std`, so it rides in this group too (building `std` from source fixes
-#   it).
+# - The platform subcrates and `bevy_nds_3d_cull` pull in crates compiled
+#   against `core` (Bevy; `libm`), so the host test needs `std` built from
+#   source to keep a single `core` (avoiding a duplicate-lang-item clash) and
+#   `panic = "unwind"` to match the test harness. `wav2bank` has no external
+#   deps, but a *clean* host build still trips the duplicate-`core` clash under
+#   the project's global `build-std`, so it rides in this group too (building
+#   `std` from source fixes it).
 test *args:
     host="$(rustc -vV | sed -n 's/^host: //p')"; \
     cargo test -p bevy_nds_3d_obj -p obj2dl -p bevy_nds_3d_macros \
         --target "$host" {{args}}
-    cargo test -p bevy_nds -p bevy_nds_3d_cull -p wav2bank -p bevy_nds_audio \
+    cargo test \
+        -p bevy_nds_diagnostics \
+        -p bevy_nds_time \
+        -p bevy_nds_input \
+        -p bevy_nds_gesture \
+        -p bevy_nds_text \
+        -p bevy_nds_3d_cull \
+        -p wav2bank \
+        -p bevy_nds_audio \
         --target "$(rustc -vV | sed -n 's/^host: //p')" \
         --config 'unstable.build-std=["std","panic_unwind","proc_macro"]' \
         --config 'profile.dev.panic="unwind"' \
@@ -106,8 +114,12 @@ preview profile="debug": (rom profile)
     echo "Booting {{rom}} in desmume (headless) on $disp …"
     timeout $((wait_s + 20)) Xvfb "$disp" -screen 0 256x384x24 >/tmp/bevy-ds-xvfb.log 2>&1 &
     sleep 2
-    DISPLAY="$disp" SDL_VIDEODRIVER=x11 \
-        timeout $((wait_s + 6)) desmume-cli --nojoy "{{rom}}" >/tmp/bevy-ds-emu.log 2>&1 &
+    # `--disable-sound` keeps the preview silent: the preview is meant for
+    # eyes-only (CI, quick screenshots), and an emulator that suddenly bursts
+    # into music is startling when you forget you launched it. Also dodges any
+    # SDL audio device the headless Xvfb session doesn't have.
+    DISPLAY="$disp" SDL_VIDEODRIVER=x11 SDL_AUDIODRIVER=dummy \
+        timeout $((wait_s + 6)) desmume-cli --nojoy --disable-sound "{{rom}}" >/tmp/bevy-ds-emu.log 2>&1 &
     sleep "$wait_s"
     DISPLAY="$disp" import -window root "$out"
     echo "Saved $out (emulator log: /tmp/bevy-ds-emu.log)"

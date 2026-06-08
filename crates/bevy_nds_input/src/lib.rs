@@ -1,9 +1,13 @@
-//! Nintendo DS buttons, surfaced through Bevy's standard input abstraction.
+//! Nintendo DS buttons & touch, surfaced through Bevy's standard input
+//! abstractions.
 //!
 //! Rather than inventing a bespoke input resource, we reuse [`ButtonInput`]
-//! (the same type Bevy uses for keyboards, mice and gamepads). Game code reads
-//! `Res<ButtonInput<DsButton>>` and gets `pressed` / `just_pressed` /
-//! `just_released` for free.
+//! (the same type Bevy uses for keyboards, mice and gamepads) for buttons, and
+//! Bevy's standard [`Touches`] / [`TouchInput`] pipeline for the touch screen.
+//! Game code reads `Res<ButtonInput<DsButton>>` and `Res<Touches>` and gets the
+//! usual `pressed` / `just_pressed` / `iter()` API for free.
+
+#![cfg_attr(not(test), no_std)]
 
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
@@ -11,7 +15,48 @@ use bevy_input::ButtonInput;
 use bevy_input::touch::{TouchInput, TouchPhase, Touches, touch_screen_input_system};
 use bevy_math::Vec2;
 
-use crate::ffi;
+// libnds key bit masks (see <nds/input.h>).
+const KEY_A: u32 = 1 << 0;
+const KEY_B: u32 = 1 << 1;
+const KEY_SELECT: u32 = 1 << 2;
+const KEY_START: u32 = 1 << 3;
+const KEY_RIGHT: u32 = 1 << 4;
+const KEY_LEFT: u32 = 1 << 5;
+const KEY_UP: u32 = 1 << 6;
+const KEY_DOWN: u32 = 1 << 7;
+const KEY_R: u32 = 1 << 8;
+const KEY_L: u32 = 1 << 9;
+const KEY_X: u32 = 1 << 10;
+const KEY_Y: u32 = 1 << 11;
+/// Touchscreen pen-down. Set in `keysHeld()` while the screen is being pressed;
+/// `touchRead` only returns useful data when this bit is set.
+const KEY_TOUCH: u32 = 1 << 12;
+
+/// Touch-screen reading, calibrated by libnds from the firmware (see
+/// `<nds/touch.h>`). Only `px` / `py` (pixel coordinates, 0..=255 by 0..=191)
+/// are meaningful for normal use; the raw and resistance fields are kept to
+/// match the C struct layout exactly so `touchRead` writes the right offsets.
+#[repr(C)]
+#[derive(Debug, Default, Clone, Copy)]
+#[allow(non_camel_case_types)]
+struct touchPosition {
+    rawx: u16,
+    rawy: u16,
+    px: u16,
+    py: u16,
+    z1: u16,
+    z2: u16,
+}
+
+unsafe extern "C" {
+    /// Latch the current button state; call once per frame before reading keys.
+    fn scanKeys();
+    /// Buttons currently held down (bitfield of `KEY_*`).
+    fn keysHeld() -> u32;
+    /// Read the calibrated touch-screen position into `pos`. Only produces
+    /// useful data when `keysHeld()` reports `KEY_TOUCH`. See `<nds/touch.h>`.
+    fn touchRead(pos: *mut touchPosition) -> u32;
+}
 
 /// A button on the Nintendo DS.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -33,18 +78,18 @@ pub enum DsButton {
 impl DsButton {
     /// Every button paired with its libnds key mask.
     const ALL: [(DsButton, u32); 12] = [
-        (DsButton::A, ffi::KEY_A),
-        (DsButton::B, ffi::KEY_B),
-        (DsButton::X, ffi::KEY_X),
-        (DsButton::Y, ffi::KEY_Y),
-        (DsButton::L, ffi::KEY_L),
-        (DsButton::R, ffi::KEY_R),
-        (DsButton::Start, ffi::KEY_START),
-        (DsButton::Select, ffi::KEY_SELECT),
-        (DsButton::Up, ffi::KEY_UP),
-        (DsButton::Down, ffi::KEY_DOWN),
-        (DsButton::Left, ffi::KEY_LEFT),
-        (DsButton::Right, ffi::KEY_RIGHT),
+        (DsButton::A, KEY_A),
+        (DsButton::B, KEY_B),
+        (DsButton::X, KEY_X),
+        (DsButton::Y, KEY_Y),
+        (DsButton::L, KEY_L),
+        (DsButton::R, KEY_R),
+        (DsButton::Start, KEY_START),
+        (DsButton::Select, KEY_SELECT),
+        (DsButton::Up, KEY_UP),
+        (DsButton::Down, KEY_DOWN),
+        (DsButton::Left, KEY_LEFT),
+        (DsButton::Right, KEY_RIGHT),
     ];
 }
 
@@ -55,8 +100,8 @@ fn read_keys(mut buttons: ResMut<ButtonInput<DsButton>>) {
     buttons.clear();
 
     let held = unsafe {
-        ffi::scanKeys();
-        ffi::keysHeld()
+        scanKeys();
+        keysHeld()
     };
 
     for (button, mask) in DsButton::ALL {
@@ -68,7 +113,8 @@ fn read_keys(mut buttons: ResMut<ButtonInput<DsButton>>) {
     }
 }
 
-/// Exposes the DS buttons as a `ButtonInput<DsButton>` resource.
+/// Exposes the DS buttons + touch screen through Bevy's standard input
+/// resources: `ButtonInput<DsButton>` and `Touches`.
 pub struct InputPlugin;
 
 impl Plugin for InputPlugin {
@@ -121,11 +167,11 @@ fn diff_touch(
 fn read_touch(mut prev: Local<Option<Vec2>>, mut events: EventWriter<TouchInput>) {
     // `scanKeys` was already called this frame by `read_keys` (the systems are
     // chained), so the held-key state is current.
-    let current = (unsafe { ffi::keysHeld() } & ffi::KEY_TOUCH != 0).then(|| {
-        let mut pos = ffi::touchPosition::default();
+    let current = (unsafe { keysHeld() } & KEY_TOUCH != 0).then(|| {
+        let mut pos = touchPosition::default();
         // SAFETY: `pos` is a valid, writable `touchPosition`; libnds only fills
         // in calibrated data because `KEY_TOUCH` is held.
-        unsafe { ffi::touchRead(&mut pos) };
+        unsafe { touchRead(&mut pos) };
         Vec2::new(pos.px as f32, pos.py as f32)
     });
 
@@ -172,10 +218,10 @@ mod tests {
     #[test]
     fn directional_masks_match_libnds() {
         let mask = |b: DsButton| DsButton::ALL.iter().find(|(x, _)| *x == b).unwrap().1;
-        assert_eq!(mask(DsButton::Left), ffi::KEY_LEFT);
-        assert_eq!(mask(DsButton::Right), ffi::KEY_RIGHT);
-        assert_eq!(mask(DsButton::Up), ffi::KEY_UP);
-        assert_eq!(mask(DsButton::Down), ffi::KEY_DOWN);
+        assert_eq!(mask(DsButton::Left), KEY_LEFT);
+        assert_eq!(mask(DsButton::Right), KEY_RIGHT);
+        assert_eq!(mask(DsButton::Up), KEY_UP);
+        assert_eq!(mask(DsButton::Down), KEY_DOWN);
     }
 
     #[test]
