@@ -8,6 +8,8 @@
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 use bevy_input::ButtonInput;
+use bevy_input::touch::{TouchInput, TouchPhase, Touches, touch_screen_input_system};
+use bevy_math::Vec2;
 
 use crate::ffi;
 
@@ -72,7 +74,72 @@ pub struct InputPlugin;
 impl Plugin for InputPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ButtonInput<DsButton>>()
-            .add_systems(PreUpdate, read_keys);
+            .init_resource::<Touches>()
+            .add_event::<TouchInput>()
+            // `scanKeys` (in `read_keys`) must latch the hardware before
+            // `read_touch` inspects `KEY_TOUCH`, and our raw `TouchInput` events
+            // must be written before Bevy folds them into `Touches`.
+            .add_systems(
+                PreUpdate,
+                (read_keys, read_touch, touch_screen_input_system).chain(),
+            );
+    }
+}
+
+/// libnds treats the touch screen as a single pointer, so we model it as one
+/// Bevy touch with a fixed id.
+const TOUCH_ID: u64 = 0;
+
+/// Translate the previous and current pen state into the touch event (if any) to
+/// emit, plus the position to remember for next frame.
+///
+/// This is the pure, host-testable half of [`read_touch`]: `prev` is the last
+/// position while the pen was down (or `None` if it was up), `current` is this
+/// frame's reading (or `None` if the pen is up now). A press emits
+/// [`TouchPhase::Started`], a real move emits [`TouchPhase::Moved`], and a
+/// release emits [`TouchPhase::Ended`] at the *last* known position (the
+/// hardware reports nothing once the pen leaves the screen).
+fn diff_touch(
+    prev: Option<Vec2>,
+    current: Option<Vec2>,
+) -> (Option<(TouchPhase, Vec2)>, Option<Vec2>) {
+    match (prev, current) {
+        (None, Some(pos)) => (Some((TouchPhase::Started, pos)), Some(pos)),
+        (Some(prev_pos), Some(pos)) if pos != prev_pos => {
+            (Some((TouchPhase::Moved, pos)), Some(pos))
+        }
+        (Some(_), Some(pos)) => (None, Some(pos)),
+        (Some(prev_pos), None) => (Some((TouchPhase::Ended, prev_pos)), None),
+        (None, None) => (None, None),
+    }
+}
+
+/// Reads the touch screen each frame and feeds Bevy's standard touch pipeline by
+/// writing [`TouchInput`] events; [`touch_screen_input_system`] turns those into
+/// the [`Touches`] resource that game code reads. The previous pen position is
+/// kept in a `Local` so we can derive started / moved / ended transitions.
+fn read_touch(mut prev: Local<Option<Vec2>>, mut events: EventWriter<TouchInput>) {
+    // `scanKeys` was already called this frame by `read_keys` (the systems are
+    // chained), so the held-key state is current.
+    let current = (unsafe { ffi::keysHeld() } & ffi::KEY_TOUCH != 0).then(|| {
+        let mut pos = ffi::touchPosition::default();
+        // SAFETY: `pos` is a valid, writable `touchPosition`; libnds only fills
+        // in calibrated data because `KEY_TOUCH` is held.
+        unsafe { ffi::touchRead(&mut pos) };
+        Vec2::new(pos.px as f32, pos.py as f32)
+    });
+
+    let (event, next) = diff_touch(*prev, current);
+    *prev = next;
+
+    if let Some((phase, position)) = event {
+        events.write(TouchInput {
+            phase,
+            position,
+            window: Entity::PLACEHOLDER,
+            force: None,
+            id: TOUCH_ID,
+        });
     }
 }
 
@@ -109,5 +176,45 @@ mod tests {
         assert_eq!(mask(DsButton::Right), ffi::KEY_RIGHT);
         assert_eq!(mask(DsButton::Up), ffi::KEY_UP);
         assert_eq!(mask(DsButton::Down), ffi::KEY_DOWN);
+    }
+
+    #[test]
+    fn touch_down_from_idle_starts() {
+        let here = Vec2::new(40.0, 90.0);
+        let (event, next) = diff_touch(None, Some(here));
+        assert_eq!(event, Some((TouchPhase::Started, here)));
+        assert_eq!(next, Some(here));
+    }
+
+    #[test]
+    fn touch_move_while_held_reports_new_position() {
+        let from = Vec2::new(40.0, 90.0);
+        let to = Vec2::new(41.0, 92.0);
+        let (event, next) = diff_touch(Some(from), Some(to));
+        assert_eq!(event, Some((TouchPhase::Moved, to)));
+        assert_eq!(next, Some(to));
+    }
+
+    #[test]
+    fn touch_held_still_emits_nothing() {
+        let here = Vec2::new(40.0, 90.0);
+        let (event, next) = diff_touch(Some(here), Some(here));
+        assert_eq!(event, None);
+        assert_eq!(next, Some(here));
+    }
+
+    #[test]
+    fn touch_release_ends_at_last_position() {
+        let last = Vec2::new(40.0, 90.0);
+        let (event, next) = diff_touch(Some(last), None);
+        assert_eq!(event, Some((TouchPhase::Ended, last)));
+        assert_eq!(next, None);
+    }
+
+    #[test]
+    fn touch_idle_stays_idle() {
+        let (event, next) = diff_touch(None, None);
+        assert_eq!(event, None);
+        assert_eq!(next, None);
     }
 }

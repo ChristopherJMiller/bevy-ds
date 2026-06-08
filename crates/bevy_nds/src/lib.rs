@@ -9,6 +9,7 @@
 //! | ---------------------- | ------------------------------------------ |
 //! | Top / bottom LCDs      | [`DsScreen`] component + `Consoles` resource (via [`VideoPlugin`]) |
 //! | Buttons                | `ButtonInput<`[`DsButton`]`>` resource (via [`InputPlugin`]) |
+//! | Touch screen           | `Touches` resource + `TouchInput` events (via [`InputPlugin`]) |
 //! | Vertical-blank @ 60 Hz | the [`run`] loop + `Time` resource (via [`TimePlugin`]) |
 //! | Tiled text background   | [`Glyph`] / [`DsText`] + [`TilePos`] drawn by [`RenderPlugin`] |
 //!
@@ -65,5 +66,6 @@ pub mod prelude {
     pub use crate::runner::{DsPlugins, run};
     pub use crate::screen::DsScreen;
     pub use bevy_input::ButtonInput;
+    pub use bevy_input::touch::{TouchInput, TouchPhase, Touches};
     pub use bevy_time::Time;
 }

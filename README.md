@@ -54,6 +54,7 @@ concepts so game code doesn't deal with it directly:
 | ------------------------ | -------------------------------------------------------------------- | ------------------- |
 | Top / bottom LCDs        | `DsScreen::{Top,Bottom}` component + `Consoles` resource             | `VideoPlugin`       |
 | Buttons (`REG_KEYINPUT`) | the standard `ButtonInput<DsButton>` resource                        | `InputPlugin`       |
+| Touch screen (`touchRead`) | the standard `Touches` resource + `TouchInput` events              | `InputPlugin`       |
 | Vertical-blank @ ~60 Hz  | a `set_runner` frame loop + a real `Time` resource (hardware timer)  | `TimePlugin`        |
 | —                        | a smoothed `Fps` resource for diagnostics                            | `DiagnosticsPlugin` |
 | Tiled text background    | `Glyph` / `DsText` + `TilePos`, drawn by an extraction system        | `RenderPlugin`      |
@@ -170,7 +171,7 @@ crates/bevy_nds/                the reusable Bevy <-> Nintendo DS library
   src/ffi.rs                      hand-written FFI to the libnds functions we use
   src/runtime.rs                  allocator, panic handler, critical-section impl
   src/screen.rs                   DsScreen, Consoles, VideoPlugin (both screens)
-  src/input.rs                    DsButton + ButtonInput<DsButton> (InputPlugin)
+  src/input.rs                    DsButton + ButtonInput<DsButton>, Touches (InputPlugin)
   src/time.rs                     real-time Time from the hardware timer (TimePlugin)
   src/diagnostics.rs              smoothed Fps resource (DiagnosticsPlugin)
   src/render.rs                   Glyph/DsText/TilePos + diffed render system (RenderPlugin)

@@ -24,6 +24,9 @@ pub const KEY_R: u32 = 1 << 8;
 pub const KEY_L: u32 = 1 << 9;
 pub const KEY_X: u32 = 1 << 10;
 pub const KEY_Y: u32 = 1 << 11;
+/// Touchscreen pen-down. Set in `keysHeld()` while the screen is being pressed;
+/// `touchRead` only returns useful data when this bit is set.
+pub const KEY_TOUCH: u32 = 1 << 12;
 
 // libnds background type / size enums (see <nds/arm9/background.h>). These are
 // passed to `consoleInit` to describe the tiled text layer.
@@ -55,6 +58,27 @@ impl PrintConsole {
     }
 }
 
+/// Touch-screen reading, calibrated by libnds from the firmware (see
+/// `<nds/touch.h>`). Only `px` / `py` (pixel coordinates, 0..=255 by 0..=191)
+/// are meaningful for normal use; the raw and resistance fields are kept to
+/// match the C struct layout exactly so `touchRead` writes the right offsets.
+#[repr(C)]
+#[derive(Debug, Default, Clone, Copy)]
+pub struct touchPosition {
+    /// Raw x value from the A2D.
+    pub rawx: u16,
+    /// Raw y value from the A2D.
+    pub rawy: u16,
+    /// Processed pixel X value (0..=255).
+    pub px: u16,
+    /// Processed pixel Y value (0..=191).
+    pub py: u16,
+    /// Raw cross-panel resistance.
+    pub z1: u16,
+    /// Raw cross-panel resistance.
+    pub z2: u16,
+}
+
 unsafe extern "C" {
     /// Initialise a simple text console on the sub (bottom) screen and select
     /// it. Returns a pointer to the default console it set up.
@@ -84,6 +108,9 @@ unsafe extern "C" {
     pub fn scanKeys();
     /// Buttons currently held down (bitfield of `KEY_*`).
     pub fn keysHeld() -> u32;
+    /// Read the calibrated touch-screen position into `pos`. Only produces
+    /// useful data when `keysHeld()` reports `KEY_TOUCH`.
+    pub fn touchRead(pos: *mut touchPosition) -> u32;
     /// Start a free-running hardware timer (uses timers `timer` and `timer+1`
     /// as a 32-bit cascade) counting at the bus clock.
     pub fn cpuStartTiming(timer: c_int);

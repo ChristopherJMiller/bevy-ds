@@ -24,6 +24,9 @@ bevy_input = { version = "0.16", default-features = false, features = [
   "critical-section",
   "libm",
 ] }
+bevy_math = { version = "0.16", default-features = false, features = [
+  "libm",
+] }
 bevy_time = { version = "0.16", default-features = false, features = [
   "critical-section",
 ] }

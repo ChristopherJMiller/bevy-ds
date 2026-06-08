@@ -48,7 +48,16 @@ impl Plugin for GamePlugin {
             screen: DsScreen::Bottom,
         })
         .add_systems(Startup, setup)
-        .add_systems(Update, (move_model, rotate_model, spin_companion, update_hud));
+        .add_systems(
+            Update,
+            (
+                move_model,
+                rotate_model,
+                spin_companion,
+                update_hud,
+                update_touch_hud,
+            ),
+        );
     }
 }
 
@@ -65,6 +74,10 @@ struct Companion;
 /// The live status line on the text screen.
 #[derive(Component)]
 struct Hud;
+
+/// A second status line that echoes the touch-screen position.
+#[derive(Component)]
+struct TouchHud;
 
 /// World-space Y past which the model has left the screen and crosses to the
 /// other one. Sized to the camera frustum so the model is fully off-screen first.
@@ -130,6 +143,17 @@ fn setup(mut commands: Commands, nitrofs: Res<NitroFs>) {
     };
     commands.spawn((DsScreen::Bottom, TilePos::new(2, 2), DsText::new(source)));
     commands.spawn((DsScreen::Bottom, TilePos::new(5, 4), Hud, DsText::new("")));
+    commands.spawn((
+        DsScreen::Bottom,
+        TilePos::new(5, 6),
+        TouchHud,
+        DsText::new("touch: --"),
+    ));
+    commands.spawn((
+        DsScreen::Bottom,
+        TilePos::new(2, 20),
+        DsText::new("touch screen: read x,y"),
+    ));
     commands.spawn((
         DsScreen::Bottom,
         TilePos::new(2, 21),
@@ -207,6 +231,21 @@ fn spin_companion(time: Res<Time>, mut query: Query<&mut Transform3d, With<Compa
     let dt = time.delta_secs();
     for mut transform in &mut query {
         transform.rotation.y += dt;
+    }
+}
+
+/// Echo the touch-screen state to its HUD line. Reads the standard Bevy
+/// [`Touches`] resource that `bevy_nds` populates from the DS digitizer, showing
+/// the live pixel coordinates while the pen is down and `--` when it is up.
+fn update_touch_hud(touches: Res<Touches>, mut query: Query<&mut DsText, With<TouchHud>>) {
+    for mut text in &mut query {
+        text.0.clear();
+        if let Some(touch) = touches.iter().next() {
+            let pos = touch.position();
+            let _ = write!(text.0, "touch: {:>3},{:>3}", pos.x as i32, pos.y as i32);
+        } else {
+            let _ = write!(text.0, "touch: --");
+        }
     }
 }
 
