@@ -1,0 +1,14 @@
+[package]
+name = "bevy_nds_3d_cull"
+version = "0.1.0"
+edition = "2024"
+description = "Pure view-frustum culling math for bevy_nds_3d (host-testable, no_std)."
+
+# Dependency-light and `no_std` so it links into the DS ROM, yet its pure math
+# (no FFI/MMIO) runs under the normal host test harness — the DS-target crates
+# can't. This is the analogue of Bevy's view-frustum culling: reject objects
+# whose world AABB lies entirely outside the camera frustum before drawing them.
+
+[dependencies]
+# Trig for the Euler-rotation AABB transform; pure Rust, works on host and DS.
+libm = "0.2"

@@ -41,6 +41,7 @@ use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 use bevy_math::Vec3;
 use bevy_nds::DsScreen;
+use bevy_nds_3d_cull::{Frustum, world_aabb};
 
 mod ffi;
 
@@ -504,6 +505,31 @@ fn init_3d() {
     }
 }
 
+/// True if `mesh`'s world bounds intersect the camera frustum (so it should be
+/// drawn). Transforms the mesh's local AABB by its [`Transform3d`] and tests it
+/// in camera-relative space. The pure maths lives in [`bevy_nds_3d_cull`].
+fn mesh_visible(
+    frustum: &Frustum,
+    camera: &Camera3d,
+    transform: &Transform3d,
+    baked: &BakedMesh,
+) -> bool {
+    let [lmin, lmax] = baked.aabb;
+    let (wmin, wmax) = world_aabb(
+        lmin.to_array(),
+        lmax.to_array(),
+        transform.translation.to_array(),
+        transform.rotation.to_array(),
+        transform.scale.to_array(),
+    );
+    // The view matrix is a pure translation by -camera.position, so shift the
+    // world AABB into the camera-relative space the frustum is built in.
+    let cam = camera.position.to_array();
+    let rel_min = [wmin[0] - cam[0], wmin[1] - cam[1], wmin[2] - cam[2]];
+    let rel_max = [wmax[0] - cam[0], wmax[1] - cam[1], wmax[2] - cam[2]];
+    frustum.contains_aabb(rel_min, rel_max)
+}
+
 /// Submit every [`DsMesh`] to the 3D hardware each frame, transformed by its
 /// [`Transform3d`] via the hardware matrix stack and viewed through [`Camera3d`].
 /// Lit meshes are shaded by the [`DsLights`] resource using their per-vertex
@@ -516,6 +542,16 @@ fn render_3d(
 ) {
     let aspect = to_fix(256.0 / 192.0);
     let fovy = rad_to_angle(camera.fov_degrees * (TAU / 360.0));
+
+    // View-frustum culling (à la Bevy): reject meshes whose world bounds fall
+    // entirely outside the camera frustum before issuing any Geometry Engine
+    // work. Built in camera-relative space, matching the translation-only view.
+    let frustum = Frustum::perspective(
+        camera.fov_degrees * (TAU / 360.0),
+        256.0 / 192.0,
+        camera.near,
+        camera.far,
+    );
 
     unsafe {
         gl::viewport(0, 0, 255, 191);
@@ -551,6 +587,14 @@ fn render_3d(
         }
 
         for (transform, mesh, mat) in &meshes {
+            // Cull meshes with known bounds (the baked / loaded models) that are
+            // fully off-screen. Hand-authored meshes without an AABB always draw.
+            if let Some(baked) = &mesh.baked
+                && !mesh_visible(&frustum, &camera, transform, baked)
+            {
+                continue;
+            }
+
             gl::push_matrix();
             gl::translate(
                 to_fix(transform.translation.x),

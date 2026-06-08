@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/bevy_nds", "crates/bevy_nds_3d", "crates/bevy_nds_3d_macros", "crates/bevy_nds_3d_obj", "crates/obj2dl"]
+members = ["crates/bevy_nds", "crates/bevy_nds_3d", "crates/bevy_nds_3d_macros", "crates/bevy_nds_3d_obj", "crates/obj2dl", "crates/bevy_nds_3d_cull"]
 resolver = "2"
 
 [package]
@@ -52,6 +52,9 @@ opt-level = 3
 opt-level = 3
 
 [profile.dev.package.bevy_nds_3d]
+opt-level = 3
+
+[profile.dev.package.bevy_nds_3d_cull]
 opt-level = 3
 
 [profile.dev.package.bevy_nds_3d_macros]

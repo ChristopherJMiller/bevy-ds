@@ -39,11 +39,20 @@ check:
 # ordinary host libraries, so their tests run natively with no special flags.
 #
 # Usage: `just test` (all) or `just test <filter>` (e.g. `just test render`).
+#
+# Crates split into two groups by dependency shape:
+# - `bevy_nds_3d_obj` / `obj2dl` / `bevy_nds_3d_macros` have no external deps, so
+#   they build cleanly against the prebuilt host std (plain `--target host`).
+# - `bevy_nds` and `bevy_nds_3d_cull` pull in crates compiled against `core`
+#   (Bevy; `libm`), so the host test needs `std` built from source to keep a
+#   single `core` (avoiding a duplicate-lang-item clash) and `panic = "unwind"`
+#   to match the test harness.
 test *args:
     host="$(rustc -vV | sed -n 's/^host: //p')"; \
     cargo test -p bevy_nds_3d_obj -p obj2dl -p bevy_nds_3d_macros \
         --target "$host" {{args}}
-    cargo test -p bevy_nds --target "$(rustc -vV | sed -n 's/^host: //p')" \
+    cargo test -p bevy_nds -p bevy_nds_3d_cull \
+        --target "$(rustc -vV | sed -n 's/^host: //p')" \
         --config 'unstable.build-std=["std","panic_unwind","proc_macro"]' \
         --config 'profile.dev.panic="unwind"' \
         {{args}}

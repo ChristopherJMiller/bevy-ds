@@ -182,7 +182,15 @@ dependencies = [
  "bevy_ecs",
  "bevy_math",
  "bevy_nds",
+ "bevy_nds_3d_cull",
  "bevy_nds_3d_macros",
+]
+
+[[package]]
+name = "bevy_nds_3d_cull"
+version = "0.1.0"
+dependencies = [
+ "libm",
 ]
 
 [[package]]
