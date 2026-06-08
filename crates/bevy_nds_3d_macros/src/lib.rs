@@ -14,7 +14,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use proc_macro::TokenStream;
+use proc_macro::{TokenStream, TokenTree};
 
 /// Bake a Wavefront `.obj` model into the ROM as a `bevy_nds_3d::DsMesh`.
 ///
@@ -25,20 +25,39 @@ use proc_macro::TokenStream;
 /// a computed flat normal. The result is a `&'static [[Vertex; 3]]` embedded in
 /// the binary, wrapped in a hardware-**lit** [`DsMesh`].
 ///
+/// # Origin / offset settings
+///
+/// Models are often authored around an off-centre origin (the Utah teapot sits
+/// on the XY plane, so its pivot is at the *base*, not the middle), which makes
+/// rotation look like it is tumbling around the wrong point. Two optional,
+/// comma-separated settings adjust the model-space origin at build time (so they
+/// cost nothing at runtime):
+///
+/// - `center` — recentre the geometry on the midpoint of its bounding box, so
+///   the entity's [`Transform3d`] rotates it about its visual centre.
+/// - `offset = [x, y, z]` — translate every vertex by this amount (applied
+///   *after* `center` if both are given).
+///
 /// ```ignore
 /// use bevy_nds_3d::prelude::*;
+/// // As authored:
 /// commands.spawn((include_obj!("assets/teapot.obj"), Transform3d::default()));
+/// // Recentred so it spins about its middle:
+/// commands.spawn((include_obj!("assets/teapot.obj", center), Transform3d::default()));
+/// // Recentred, then nudged down a touch:
+/// commands.spawn(include_obj!("assets/teapot.obj", center, offset = [0.0, -0.2, 0.0]));
 /// ```
 #[proc_macro]
 pub fn include_obj(input: TokenStream) -> TokenStream {
-    let path = match parse_string_literal(input) {
-        Ok(p) => p,
+    let args = match parse_args(input) {
+        Ok(a) => a,
         Err(e) => return compile_error(&e),
     };
+    let path = &args.path;
 
     let manifest_dir = env::var("CARGO_MANIFEST_DIR")
         .unwrap_or_else(|_| ".".into());
-    let full = PathBuf::from(&manifest_dir).join(&path);
+    let full = PathBuf::from(&manifest_dir).join(path);
 
     let source = match fs::read_to_string(&full) {
         Ok(s) => s,
@@ -50,7 +69,7 @@ pub fn include_obj(input: TokenStream) -> TokenStream {
         }
     };
 
-    let tris = match parse_obj(&source) {
+    let mut tris = match parse_obj(&source) {
         Ok(t) => t,
         Err(e) => return compile_error(&format!("include_obj!({path:?}): {e}")),
     };
@@ -58,8 +77,55 @@ pub fn include_obj(input: TokenStream) -> TokenStream {
         return compile_error(&format!("include_obj!({path:?}): no triangles found"));
     }
 
+    apply_origin(&mut tris, &args);
+
     let code = emit(&tris, &full);
     TokenStream::from_str(&code).expect("include_obj! produced invalid tokens")
+}
+
+/// Parsed `include_obj!` arguments: the model path plus the origin settings.
+struct Args {
+    path: String,
+    /// Recentre on the bounding-box midpoint before emitting.
+    center: bool,
+    /// Constant translation applied to every vertex (after centring).
+    offset: [f32; 3],
+}
+
+/// Shift the baked geometry's origin per the `center` / `offset` settings. Done
+/// at build time so the runtime pays nothing.
+fn apply_origin(tris: &mut [Tri], args: &Args) {
+    let mut shift = [0.0f32; 3];
+
+    if args.center {
+        let mut min = [f32::INFINITY; 3];
+        let mut max = [f32::NEG_INFINITY; 3];
+        for tri in tris.iter() {
+            for (pos, _) in &tri.verts {
+                for k in 0..3 {
+                    min[k] = min[k].min(pos[k]);
+                    max[k] = max[k].max(pos[k]);
+                }
+            }
+        }
+        for k in 0..3 {
+            shift[k] = -0.5 * (min[k] + max[k]);
+        }
+    }
+    for k in 0..3 {
+        shift[k] += args.offset[k];
+    }
+
+    if shift == [0.0, 0.0, 0.0] {
+        return;
+    }
+    for tri in tris.iter_mut() {
+        for (pos, _) in &mut tri.verts {
+            for k in 0..3 {
+                pos[k] += shift[k];
+            }
+        }
+    }
 }
 
 /// One triangle's worth of baked vertex data: position + normal per corner.
@@ -226,15 +292,116 @@ fn fl(v: f32) -> String {
     s
 }
 
-/// Pull a single string literal out of the macro input.
-fn parse_string_literal(input: TokenStream) -> Result<String, String> {
-    let s = input.to_string();
+/// Parse the macro input: a string-literal path, optionally followed by
+/// comma-separated `center` and/or `offset = [x, y, z]` settings.
+fn parse_args(input: TokenStream) -> Result<Args, String> {
+    let mut trees = input.into_iter().peekable();
+
+    let path = match trees.next() {
+        Some(TokenTree::Literal(lit)) => unquote(&lit.to_string())
+            .ok_or_else(|| "include_obj!: first argument must be a string-literal path".to_string())?,
+        _ => {
+            return Err("include_obj! expects a path, e.g. include_obj!(\"assets/model.obj\")".into());
+        }
+    };
+
+    let mut args = Args {
+        path,
+        center: false,
+        offset: [0.0, 0.0, 0.0],
+    };
+
+    while let Some(tt) = trees.next() {
+        // Settings are comma-separated.
+        match &tt {
+            TokenTree::Punct(p) if p.as_char() == ',' => continue,
+            _ => {}
+        }
+        let TokenTree::Ident(ident) = &tt else {
+            return Err(format!("include_obj!: unexpected token {tt}"));
+        };
+        match ident.to_string().as_str() {
+            "center" => args.center = true,
+            "offset" => {
+                // Expect `= [x, y, z]`.
+                match trees.next() {
+                    Some(TokenTree::Punct(p)) if p.as_char() == '=' => {}
+                    other => {
+                        return Err(format!(
+                            "include_obj!: expected `=` after `offset`, found {}",
+                            describe(other.as_ref())
+                        ));
+                    }
+                }
+                match trees.next() {
+                    Some(TokenTree::Group(g)) => {
+                        args.offset = parse_f32_triple(&g.stream())?;
+                    }
+                    other => {
+                        return Err(format!(
+                            "include_obj!: expected `[x, y, z]` after `offset =`, found {}",
+                            describe(other.as_ref())
+                        ));
+                    }
+                }
+            }
+            other => return Err(format!("include_obj!: unknown setting `{other}`")),
+        }
+    }
+
+    Ok(args)
+}
+
+/// Parse three comma-separated float literals (the body of an `[x, y, z]`).
+fn parse_f32_triple(stream: &TokenStream) -> Result<[f32; 3], String> {
+    let mut out = [0.0f32; 3];
+    let mut i = 0;
+    let mut pending_neg = false;
+    for tt in stream.clone() {
+        match tt {
+            TokenTree::Punct(p) if p.as_char() == ',' => {
+                pending_neg = false;
+            }
+            TokenTree::Punct(p) if p.as_char() == '-' => {
+                pending_neg = true;
+            }
+            TokenTree::Literal(lit) => {
+                if i >= 3 {
+                    return Err("include_obj!: offset takes exactly 3 numbers".into());
+                }
+                let v: f32 = lit
+                    .to_string()
+                    .parse()
+                    .map_err(|_| format!("include_obj!: `{lit}` is not a number"))?;
+                out[i] = if pending_neg { -v } else { v };
+                pending_neg = false;
+                i += 1;
+            }
+            other => return Err(format!("include_obj!: unexpected token `{other}` in offset")),
+        }
+    }
+    if i != 3 {
+        return Err("include_obj!: offset takes exactly 3 numbers, e.g. [0.0, -0.2, 0.0]".into());
+    }
+    Ok(out)
+}
+
+/// Strip surrounding double quotes from a string-literal token's text.
+fn unquote(s: &str) -> Option<String> {
     let s = s.trim();
     let bytes = s.as_bytes();
     if bytes.len() >= 2 && bytes[0] == b'"' && bytes[bytes.len() - 1] == b'"' {
-        Ok(s[1..s.len() - 1].to_string())
+        Some(s[1..s.len() - 1].to_string())
     } else {
-        Err("include_obj! expects a single string-literal path, e.g. include_obj!(\"assets/model.obj\")".into())
+        None
+    }
+}
+
+/// A short human description of an optional token, for error messages.
+fn describe(tt: Option<&TokenTree>) -> String {
+    match tt {
+        Some(tt) => format!("`{tt}`"),
+        None => "end of input".to_string(),
     }
 }
 

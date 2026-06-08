@@ -63,11 +63,12 @@ const EDGE: f32 = 1.6;
 
 fn setup(mut commands: Commands) {
     // The Utah teapot, baked into the ROM at build time from `assets/teapot.obj`
-    // and drawn with the DS hardware lighting pipeline. Its model space is large
-    // and Z-up, so scale it down and tip it upright for a pleasant 3/4 view.
+    // and drawn with the DS hardware lighting pipeline. The model is authored
+    // sitting on the XY plane (pivot at its base), so `center` recentres it at
+    // build time, making it rotate about its visual middle rather than tumbling.
     commands.spawn((
         Model,
-        include_obj!("assets/teapot.obj"),
+        include_obj!("assets/teapot.obj", center),
         DsMaterial {
             diffuse: [120, 170, 215],
             ambient: [28, 36, 56],
