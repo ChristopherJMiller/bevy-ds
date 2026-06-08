@@ -4,14 +4,24 @@
 `.nds` ROM that boots in an emulator or on hardware. The build runs entirely
 inside a Nix dev shell.
 
-There are three crates:
+There are several crates:
 
 - **`bevy_nds`** (`crates/bevy_nds`) — the library. It binds Bevy's `no_std`
   ECS/App core to the DS hardware through [libnds](https://github.com/blocksds/libnds)
   and exposes it as Bevy plugins, components and resources.
 - **`bevy_nds_3d`** (`crates/bevy_nds_3d`) — an add-on that drives the DS
-  hardware 3D engine, with `Transform3d`, `DsMesh` and a `Camera3d` resource.
+  hardware 3D engine, with `Transform3d`, `DsMesh`, a `Camera3d` resource,
+  view-frustum culling, and model loading (baked or from NitroFS at runtime).
   Depends on `bevy_nds`.
+- **`bevy_nds_3d_obj`** (`crates/bevy_nds_3d_obj`) — host-side Wavefront OBJ →
+  display-list encoder. The single source of truth for the geometry packing,
+  shared by the macro, the converter and the build script.
+- **`bevy_nds_3d_macros`** (`crates/bevy_nds_3d_macros`) — the `include_obj!`
+  proc-macro, which bakes a model into the ROM binary at compile time.
+- **`bevy_nds_3d_cull`** (`crates/bevy_nds_3d_cull`) — pure, host-testable
+  view-frustum culling math.
+- **`obj2dl`** (`crates/obj2dl`) — host CLI + library that bakes OBJ models into
+  `.dl` assets for NitroFS; used by the demo's `build.rs`.
 - **`bevy-ds`** (the root crate) — the demo. Plain Bevy components and systems,
   with no FFI, allocator or panic handler.
 
@@ -19,13 +29,15 @@ There are three crates:
   <img src="docs/cube-demo.png" alt="The hardware-rendered 3D cube on the top screen with the live HUD below" width="320">
 </p>
 
-The demo renders a cube on one screen and a text HUD on the other. The D-pad
-moves the cube, ABXY rotate it, and moving it off the edge sends it to the other
-screen.
+The demo renders a hardware-lit Utah teapot on one screen and a text HUD on the
+other. The D-pad moves the teapot, ABXY rotate it, and moving it off the edge
+sends it to the other screen. The model is loaded at runtime from the ROM
+filesystem (NitroFS), falling back to a copy baked into the binary if the
+filesystem is unavailable — the HUD shows which path was taken.
 
 The screen-crossing follows from the hardware layout: the 3D core is attached to
 the main 2D engine, and the `POWER_SWAP_LCDS` bit selects which physical LCD that
-engine drives. The sub engine drives the other one. The cube and the HUD are
+engine drives. The sub engine drives the other one. The teapot and the HUD are
 therefore always on opposite screens, and a `Display3d` resource controls which
 is which. Crossing the edge toggles the bit, swapping both at once.
 
@@ -120,19 +132,23 @@ For the smaller, faster build, append `release`, e.g. `just run release`.
 
 ### Testing
 
-The hardware-independent logic in `bevy_nds` has unit tests: the render diffing,
-the timer-tick→nanoseconds conversion, the FPS smoothing, and the button-mask
-mapping. They run on the host, not the DS:
+The hardware-independent logic has unit tests: the render diffing, the
+timer-tick→nanoseconds conversion, the FPS smoothing, the button-mask mapping
+(`bevy_nds`), the OBJ→display-list packing (`bevy_nds_3d_obj`), and the
+view-frustum culling math (`bevy_nds_3d_cull`). They run on the host, not the DS:
 
 ```sh
-just test          # run all bevy_nds unit tests
+just test          # run all host unit tests
 just test render   # run only tests whose name matches "render"
 ```
 
-The crate is `no_std` only when not under `cfg(test)`, so the test build links
+The crates are `no_std` only when not under `cfg(test)`, so the test build links
 the host `std` and the standard test harness. `just test` compiles for the host
 triple and overrides the project's `build-std`/panic settings for that run (see
-the `Justfile`). The first run builds `std` and is slow; later runs are fast.
+the `Justfile`). Dependency-free crates test under a plain host target, while
+crates that pull in `core`-compiled dependencies need a `std`-from-source build
+to avoid a duplicate `core` lang-item clash, so the recipe runs two `cargo test`
+invocations. The first run builds `std` and is slow; later runs are fast.
 Hardware calls are kept out of the tested functions, so no DS or emulator is
 required.
 
@@ -157,7 +173,37 @@ crates/bevy_nds/                the reusable Bevy <-> Nintendo DS library
   src/diagnostics.rs              smoothed Fps resource (DiagnosticsPlugin)
   src/render.rs                   Glyph/DsText/TilePos + diffed render system (RenderPlugin)
   src/runner.rs                   the vblank App runner + DsPlugins group
+crates/bevy_nds_3d/             hardware 3D backend (Transform3d, DsMesh, Camera3d)
+  src/lib.rs                      meshes, culling, NitroFS loading, render system
+  src/ffi.rs                      FFI to the geometry engine + NitroFS / file I/O
+crates/bevy_nds_3d_obj/         host OBJ -> display-list encoder (shared packing math)
+crates/bevy_nds_3d_macros/      include_obj! proc-macro (bakes a model into the ROM)
+crates/bevy_nds_3d_cull/        pure, host-testable view-frustum culling math
+crates/obj2dl/                  host CLI/lib: OBJ -> .dl NitroFS asset (used by build.rs)
+assets/                         uncompiled source models (e.g. teapot.obj)
+build/nitrofs/                  compiled .dl assets, packed into the ROM (gitignored)
 ```
+
+### Asset pipeline
+
+The DS has no asset server: a model is always *bytes at a ROM address*. A single
+host-side encoder (`bevy_nds_3d_obj`) turns a Wavefront OBJ into a libnds
+**display list** — the exact geometry-engine command block the hardware draws in
+one `glCallList` DMA burst, with all fixed-point and normal packing done on the
+host. That encoder feeds two delivery paths:
+
+- **Baked into the binary.** `include_obj!("model.obj")` parses the OBJ at
+  compile time and embeds a `&'static` display list in the ARM9 binary.
+- **Loaded from NitroFS.** The demo's `build.rs` runs `obj2dl` over `assets/*.obj`
+  into `build/nitrofs/*.dl`; `just rom` packs that directory into the ROM
+  filesystem (`ndstool -d`), and `DsMesh::load("nitro:/model.dl")` reads it at
+  runtime (with a cache flush before the DMA). This keeps large models out of
+  precious main RAM and lets assets change without relinking.
+
+Both paths produce byte-identical geometry. Build-time options (`center`,
+`offset`, `compress` for `VTX_10` vertices) adjust the baked output at no runtime
+cost. Meshes carry a local AABB, which the renderer uses for view-frustum culling
+(`bevy_nds_3d_cull`), the DS analogue of Bevy's culling.
 
 ## Writing a game
 
@@ -183,8 +229,9 @@ pub extern "C" fn main() -> core::ffi::c_int {
 }
 ```
 
-`src/main.rs` is the full example: the 3D cube, D-pad movement across both
-screens (the `Display3d` swap), ABXY rotation, and the HUD.
+`src/main.rs` is the full example: the hardware-lit teapot loaded from NitroFS,
+D-pad movement across both screens (the `Display3d` swap), ABXY rotation, and the
+HUD.
 
 ## Build details
 
@@ -199,11 +246,12 @@ screens (the `Display3d` swap), ABXY rotation, and the HUD.
   (pulled in by Bevy) is backed by the `critical-section` impl in
   `crates/bevy_nds/src/runtime.rs`, which disables interrupts around the section.
 - **Packaging.** `ndstool` combines the ARM9 ELF with a stock BlocksDS ARM7 core
-  (`arm7_minimal.elf`) into the final `.nds`.
-- **Performance.** The dev profile leaves our crates unoptimized for fast
-  rebuilds but compiles every dependency at `opt-level = 3`
-  (`[profile.dev.package."*"]`), so the debug ROM runs at 60 fps on the 33 MHz
-  ARM9. Build `release` for the smallest, fastest ROM.
+  (`arm7_minimal.elf`) and the `build/nitrofs` asset directory (`-d`) into the
+  final `.nds`.
+- **Performance.** The dev profile leaves the *game* crate unoptimized for fast
+  rebuilds but compiles every dependency *and* our engine subcrates at
+  `opt-level = 3` (they sit on the per-frame hot path), so the debug ROM runs at
+  60 fps on the 33 MHz ARM9. Build `release` for the smallest, fastest ROM.
 
 ## Limitations / next steps
 
