@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/bevy_nds", "crates/bevy_nds_3d", "crates/bevy_nds_3d_macros", "crates/bevy_nds_3d_obj", "crates/obj2dl", "crates/bevy_nds_3d_cull"]
+members = ["crates/bevy_nds", "crates/bevy_nds_3d", "crates/bevy_nds_3d_macros", "crates/bevy_nds_3d_obj", "crates/obj2dl", "crates/bevy_nds_3d_cull", "crates/wav2bank"]
 resolver = "2"
 
 [package]

@@ -1,0 +1,19 @@
+[package]
+name = "wav2bank"
+version = "0.1.0"
+edition = "2024"
+description = "Bakes audio/*.wav into a maxmod soundbank (.bin) + Rust ID consts for bevy_nds_audio. Usable as a build.rs library or a CLI."
+
+# A host-side tool, never shipped in the ROM. It is the audio counterpart to
+# `obj2dl`: it wraps the BlocksDS `mmutil` soundbank compiler so that `build.rs`
+# can turn `audio/*.wav` into `soundbank.bin` (packed into NitroFS) and a Rust
+# module of the numeric sound IDs `mmutil` assigns. It also injects WAV loop
+# points so PCM samples flagged as "music" loop forever under maxmod. Exposes a
+# library (for build scripts) and a CLI (for one-off use).
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "wav2bank"
+path = "src/main.rs"

@@ -46,12 +46,15 @@ check:
 # - `bevy_nds` and `bevy_nds_3d_cull` pull in crates compiled against `core`
 #   (Bevy; `libm`), so the host test needs `std` built from source to keep a
 #   single `core` (avoiding a duplicate-lang-item clash) and `panic = "unwind"`
-#   to match the test harness.
+#   to match the test harness. `wav2bank` has no external deps, but a *clean*
+#   host build still trips the duplicate-`core` clash under the project's global
+#   `build-std`, so it rides in this group too (building `std` from source fixes
+#   it).
 test *args:
     host="$(rustc -vV | sed -n 's/^host: //p')"; \
     cargo test -p bevy_nds_3d_obj -p obj2dl -p bevy_nds_3d_macros \
         --target "$host" {{args}}
-    cargo test -p bevy_nds -p bevy_nds_3d_cull \
+    cargo test -p bevy_nds -p bevy_nds_3d_cull -p wav2bank \
         --target "$(rustc -vV | sed -n 's/^host: //p')" \
         --config 'unstable.build-std=["std","panic_unwind","proc_macro"]' \
         --config 'profile.dev.panic="unwind"' \
