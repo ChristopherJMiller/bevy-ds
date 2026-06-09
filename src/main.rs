@@ -87,6 +87,7 @@ impl Plugin for GamePlugin {
                 toggle_music,
                 update_audio_hud,
                 bg_task_demo,
+                update_clock_hud,
             ),
         );
     }
@@ -216,6 +217,10 @@ struct AudioHud;
 /// while a background cothread chips away at its work.
 #[derive(Component)]
 struct BgTaskHud;
+
+/// A status line showing wall-clock time (YYYY-MM-DD HH:MM:SS) from the DS RTC.
+#[derive(Component)]
+struct ClockHud;
 
 // --- Setup -------------------------------------------------------------------
 
@@ -350,6 +355,12 @@ fn setup(mut commands: Commands, nitrofs: Res<NitroFs>, mut music: ResMut<Music>
         TilePos::new(2, MAP_TILE_ROW + MAP_H as i16 + 6),
         BgTaskHud,
         DsText::new("task: idle (SELECT to run)"),
+    ));
+    commands.spawn((
+        DsScreen::Bottom,
+        TilePos::new(2, MAP_TILE_ROW + MAP_H as i16 + 7),
+        ClockHud,
+        DsText::new("clock: --"),
     ));
     commands.spawn((
         DsScreen::Bottom,
@@ -555,6 +566,18 @@ fn toggle_music(input: Res<ButtonInput<DsButton>>, mut music: ResMut<Music>) {
         } else {
             music.play(SoundId(sounds::SFX_PIANO_LOOP));
         }
+    }
+}
+
+/// Reflect the DS RTC's wall-clock time on its HUD line.
+fn update_clock_hud(clock: Res<WallClock>, mut query: Query<&mut DsText, With<ClockHud>>) {
+    for mut text in &mut query {
+        text.0.clear();
+        let _ = write!(
+            text.0,
+            "clock: {:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+            clock.year, clock.month, clock.day, clock.hour, clock.minute, clock.second,
+        );
     }
 }
 

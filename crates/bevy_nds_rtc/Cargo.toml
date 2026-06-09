@@ -1,0 +1,22 @@
+[package]
+name = "bevy_nds_rtc"
+version = "0.1.0"
+edition = "2024"
+description = "Wall-clock Time resource for the Nintendo DS, sourced from the real-time clock via newlib `<time.h>` (no_std)."
+
+# The DS has a real-time clock that newlib exposes through the standard
+# `<time.h>` API (`time(NULL)` returns a Unix timestamp). `bevy_nds_time`
+# already drives Bevy's monotonic `Time` resource off the hardware bus-clock
+# timer; this crate adds the orthogonal *wall-clock* axis (calendar
+# year/month/day + hour/min/sec) as a `WallClock` resource, refreshed once per
+# frame. Useful for save timestamps, day/night, daily events, and RNG seeding.
+
+[lib]
+
+[dependencies]
+bevy_app = { version = "0.16", default-features = false, features = [
+  "critical-section",
+] }
+bevy_ecs = { version = "0.16", default-features = false, features = [
+  "critical-section",
+] }

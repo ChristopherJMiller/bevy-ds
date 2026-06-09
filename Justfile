@@ -66,6 +66,7 @@ test *args:
         -p bevy_nds_audio \
         -p bevy_nds_math \
         -p bevy_nds_cothread \
+        -p bevy_nds_rtc \
         --target "$(rustc -vV | sed -n 's/^host: //p')" \
         --config 'unstable.build-std=["std","panic_unwind","proc_macro"]' \
         --config 'profile.dev.panic="unwind"' \

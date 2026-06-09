@@ -179,6 +179,7 @@ dependencies = [
  "bevy_nds_input",
  "bevy_nds_math",
  "bevy_nds_nitrofs",
+ "bevy_nds_rtc",
  "bevy_nds_runtime",
  "bevy_nds_text",
  "bevy_nds_time",
@@ -273,6 +274,14 @@ version = "0.1.0"
 
 [[package]]
 name = "bevy_nds_nitrofs"
+version = "0.1.0"
+dependencies = [
+ "bevy_app",
+ "bevy_ecs",
+]
+
+[[package]]
+name = "bevy_nds_rtc"
 version = "0.1.0"
 dependencies = [
  "bevy_app",

@@ -97,6 +97,13 @@ they don't need (e.g. drop `bevy_nds_text` for a sprite-only game).
   libnds scheduler reaps them on completion, sidestepping a use-after-free
   against the scheduler's saved `next_ctx` that you get if you call
   `cothread_delete` from another running cothread.
+- **`crates/bevy_nds_rtc`** — `WallClock` resource (broken-down
+  year/month/day + h/m/s + weekday plus Unix `unix_secs`) sourced from the DS
+  real-time clock via newlib `<time.h>` (single `time(NULL)` FFI call).
+  Sibling to `bevy_nds_time` — that drives the monotonic `Time` from the
+  hardware timer; this is the orthogonal wall-clock axis for save timestamps,
+  day/night, RNG seeding. Civil decomposition (Howard Hinnant's algorithm) is
+  pure Rust and host-tested.
 
 **Capability crates** (additive, depended on directly by games when used):
 
@@ -162,6 +169,7 @@ starting in its own crate.
 | ARM7 sound (maxmod)      | `Music` resource (looping) + `PlaySfx` events           | `bevy_nds_audio::AudioPlugin`                       |
 | Math coprocessor (div/sqrt) | `Fx32` + `FxVec2`/`FxVec3`; `hw::div_*` / `hw::sqrt_*` | `bevy_nds_math`                                  |
 | Cooperative threads (`cothread`) | `Tasks` resource + `Task<T>` handle (`spawn` / `poll`) | `bevy_nds_cothread::CothreadPlugin`           |
+| Real-time clock          | `WallClock` resource (year/month/day + h/m/s + unix_secs) | `bevy_nds_rtc::RtcPlugin`                     |
 
 `DsPlugins` (in `bevy_nds`) bundles the platform-layer plugins;
 `bevy_nds::run(app)` (re-export from `bevy_nds_runtime`) installs the runner
