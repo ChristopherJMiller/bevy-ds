@@ -173,6 +173,7 @@ version = "0.1.0"
 dependencies = [
  "bevy_app",
  "bevy_input",
+ "bevy_nds_cothread",
  "bevy_nds_diagnostics",
  "bevy_nds_gesture",
  "bevy_nds_input",
@@ -225,6 +226,15 @@ dependencies = [
  "bevy_app",
  "bevy_ecs",
  "bevy_nds_nitrofs",
+]
+
+[[package]]
+name = "bevy_nds_cothread"
+version = "0.1.0"
+dependencies = [
+ "bevy_app",
+ "bevy_ecs",
+ "portable-atomic",
 ]
 
 [[package]]

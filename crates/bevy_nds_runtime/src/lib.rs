@@ -27,7 +27,12 @@ fn ds_runner(mut app: App) -> AppExit {
     app.finish();
     app.cleanup();
     loop {
-        unsafe { swiWaitForVBlank() };
+        // `cothread_yield_irq(IRQ_VBLANK)` blocks until vblank just like
+        // `swiWaitForVBlank` would, *and* gives any spawned
+        // `bevy_nds_cothread` tasks scheduling time during the wait. With no
+        // tasks alive it reduces to a plain vblank wait, so games that never
+        // spawn one see no behaviour change.
+        unsafe { cothread_yield_irq(IRQ_VBLANK) };
         app.update();
     }
 }
@@ -66,8 +71,15 @@ mod bare_metal {
         fn consoleClear();
         fn printf(fmt: *const c_char, ...) -> c_int;
 
-        /// Block until the next vertical blank (~60 Hz), pacing the game loop.
+        /// Block until the next vertical blank (~60 Hz). Used by the panic
+        /// handler — the normal frame loop uses [`cothread_yield_irq`]
+        /// instead, so spawned cothreads get scheduling time.
         pub(super) fn swiWaitForVBlank();
+
+        /// Yield to other cothreads, blocking until the specified IRQ fires
+        /// (`<nds/cothread.h>`). Used by the frame loop's vblank pacer; with
+        /// no spawned cothreads this reduces to a plain vblank wait.
+        pub(super) fn cothread_yield_irq(flag: u32);
     }
 
     /// Global allocator backed by newlib's heap (set up by the BlocksDS crt0).
@@ -126,4 +138,8 @@ mod bare_metal {
 }
 
 #[cfg(target_vendor = "nintendo")]
-use bare_metal::swiWaitForVBlank;
+use bare_metal::cothread_yield_irq;
+
+/// VBLANK IRQ mask for `cothread_yield_irq` (`<nds/interrupts.h>`).
+#[cfg(target_vendor = "nintendo")]
+const IRQ_VBLANK: u32 = 1 << 0;

@@ -52,6 +52,10 @@ drop `bevy_nds_text` for a sprite-only game).
   coprocessor. Pure, host-testable; replaces software `f32` in the per-frame
   math hot paths (the no-FPU ARM946E-S analogue of `portable-atomic`'s no-CAS
   story).
+- **`bevy_nds_cothread`** (`crates/bevy_nds_cothread`) — libnds cooperative
+  threads as a Bevy-friendly `Tasks` resource + `Task<T>` handle. The runtime's
+  vblank wait yields to spawned tasks, so blocking work (NitroFS reads, saves,
+  WiFi) can run off the per-frame critical path without dropping below 60 fps.
 - **`obj2dl`** (`crates/obj2dl`) — host CLI/lib that bakes OBJ models into `.dl`
   NitroFS assets; used by the demo's `build.rs`.
 - **`wav2bank`** (`crates/wav2bank`) — host CLI/lib that wraps `mmutil` to bake
@@ -99,9 +103,11 @@ concepts so game code doesn't deal with it directly:
 | 3D geometry engine       | `Transform3d` + `DsMesh` + a `Camera3d` resource                      | `bevy_nds_3d::Ds3dPlugin`                        |
 | ARM7 sound (maxmod)      | `Music` resource (looping) + `PlaySfx` events                         | `bevy_nds_audio::AudioPlugin`                    |
 | Math coprocessor (divide/sqrt) | `Fx32` + `FxVec2`/`FxVec3` (20.12 fixed-point), `hw::div_*`/`hw::sqrt_*` | `bevy_nds_math`                          |
+| Cooperative threads (`cothread`) | `Tasks` resource + `Task<T>` handle (`spawn` / `poll`)              | `bevy_nds_cothread::CothreadPlugin`              |
 
 `DsPlugins` bundles all of it, and `bevy_nds::run(app)` installs the runner that
-owns the frame loop (`swiWaitForVBlank` → `app.update()`).
+owns the frame loop (`cothread_yield_irq(IRQ_VBLANK)` → `app.update()`; with no
+tasks spawned this reduces to a plain vblank wait).
 
 ### Rendering model
 
@@ -232,6 +238,7 @@ crates/bevy_nds_3d_obj/         host OBJ -> display-list encoder (shared packing
 crates/bevy_nds_3d_macros/      include_obj! proc-macro (bakes a model into the ROM)
 crates/bevy_nds_3d_cull/        pure, host-testable view-frustum culling math
 crates/bevy_nds_math/           20.12 fixed-point + hardware divide/sqrt wrappers (host-testable)
+crates/bevy_nds_cothread/       libnds cooperative threads as Tasks/Task<T> (non-blocking IO)
 crates/bevy_nds_audio/          maxmod audio backend (Music resource, PlaySfx events)
   src/lib.rs                      AudioPlugin, Music/PlaySfx API, soundbank loading
   src/ffi.rs                      FFI to the maxmod ARM9 API

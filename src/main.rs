@@ -86,6 +86,7 @@ impl Plugin for GamePlugin {
                 poke_picked,
                 toggle_music,
                 update_audio_hud,
+                bg_task_demo,
             ),
         );
     }
@@ -208,6 +209,13 @@ struct GestureHud;
 /// A status line reflecting the music state (playing/muted).
 #[derive(Component)]
 struct AudioHud;
+
+/// A status line for the cothread demo. SELECT spawns a task that yields once
+/// per vblank for ~2 seconds; this line shows idle/running/done so you can
+/// watch the frame loop keep ticking (fps stays at 60, teapot still walks)
+/// while a background cothread chips away at its work.
+#[derive(Component)]
+struct BgTaskHud;
 
 // --- Setup -------------------------------------------------------------------
 
@@ -339,8 +347,14 @@ fn setup(mut commands: Commands, nitrofs: Res<NitroFs>, mut music: ResMut<Music>
     ));
     commands.spawn((
         DsScreen::Bottom,
+        TilePos::new(2, MAP_TILE_ROW + MAP_H as i16 + 6),
+        BgTaskHud,
+        DsText::new("task: idle (SELECT to run)"),
+    ));
+    commands.spawn((
+        DsScreen::Bottom,
         TilePos::new(2, 22),
-        DsText::new("D-pad: walk   ABXY: tumble"),
+        DsText::new("D-pad walk  ABXY tumble  SEL task"),
     ));
     commands.spawn((
         DsScreen::Bottom,
@@ -587,6 +601,47 @@ fn update_gesture_hud(
     for mut text in &mut query {
         text.0.clear();
         let _ = write!(text.0, "gesture: {label}");
+    }
+}
+
+/// Cothread demo: SELECT spawns a background task that yields once per vblank
+/// for ~2 seconds (120 frames), counting iterations. The HUD line cycles
+/// idle → running → done while the game loop keeps drawing the teapot at 60
+/// fps — proof that blocking work has moved off the critical path.
+fn bg_task_demo(
+    input: Res<ButtonInput<DsButton>>,
+    tasks: Res<Tasks>,
+    mut slot: Local<Option<Task<u64>>>,
+    mut last_result: Local<Option<u64>>,
+    mut query: Query<&mut DsText, With<BgTaskHud>>,
+) {
+    if input.just_pressed(DsButton::Select) && slot.is_none() {
+        *slot = Some(tasks.spawn(|| {
+            let mut count: u64 = 0;
+            for _ in 0..120 {
+                bevy_nds::yield_until_vblank();
+                count += 1;
+            }
+            count
+        }));
+    }
+
+    if let Some(task) = slot.as_mut()
+        && let Some(n) = task.poll()
+    {
+        *last_result = Some(n);
+        *slot = None;
+    }
+
+    for mut text in &mut query {
+        text.0.clear();
+        if slot.is_some() {
+            let _ = write!(text.0, "task: running ...");
+        } else if let Some(n) = *last_result {
+            let _ = write!(text.0, "task: done ({n})  SELECT=run");
+        } else {
+            let _ = write!(text.0, "task: idle (SELECT to run)");
+        }
     }
 }
 

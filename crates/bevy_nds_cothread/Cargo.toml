@@ -1,0 +1,30 @@
+[package]
+name = "bevy_nds_cothread"
+version = "0.1.0"
+edition = "2024"
+description = "Cooperative threads (libnds cothread) as a Bevy task-pool resource — non-blocking NitroFS / save / network IO without dropping below 60 fps."
+
+# Wraps libnds cooperative threads (`<nds/cothread.h>`). The frame loop in
+# `bevy_nds_runtime` is strictly synchronous: any blocking work (NitroFS read,
+# card write, WiFi request) stalls vblank and drops the frame rate. Cothreads
+# let that work move off the critical path: the runtime's per-frame vblank
+# wait becomes `cothread_yield_irq(IRQ_VBLANK)`, which gives spawned tasks a
+# scheduling window. Tasks must yield voluntarily — CPU-bound work without a
+# yield still blocks.
+
+[lib]
+
+[dependencies]
+bevy_app = { version = "0.16", default-features = false, features = [
+  "critical-section",
+] }
+bevy_ecs = { version = "0.16", default-features = false, features = [
+  "critical-section",
+] }
+# ARM946E-S has no hardware CAS, so `core::sync::atomic::AtomicBool` fails to
+# link (asks for `__sync_*` intrinsics that don't exist). `portable-atomic`
+# routes atomics through the `critical-section` impl in `bevy_nds_runtime` —
+# matching how Bevy's atomics already work on this target.
+portable-atomic = { version = "1", default-features = false, features = [
+  "critical-section",
+] }

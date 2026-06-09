@@ -39,7 +39,7 @@ invocations split by dependency shape:
    `--target $host`.
 2. The platform subcrates (`bevy_nds_diagnostics`, `bevy_nds_time`,
    `bevy_nds_input`, `bevy_nds_gesture`, `bevy_nds_text`), `bevy_nds_3d_cull`,
-   `bevy_nds_math`, `wav2bank`, `bevy_nds_audio` — pull in code compiled against `core`, so they
+   `bevy_nds_math`, `bevy_nds_cothread`, `wav2bank`, `bevy_nds_audio` — pull in code compiled against `core`, so they
    need `std` from source (`unstable.build-std=["std","panic_unwind","proc_macro"]`)
    and `panic = "unwind"` to avoid a duplicate-`core` lang-item clash and match
    the test harness. The first run is slow (builds `std`); later runs are fast.
@@ -89,6 +89,14 @@ they don't need (e.g. drop `bevy_nds_text` for a sprite-only game).
   (`<nds/arm9/math.h>`, MMIO at `0x0400_0280` / `0x0400_02B0`), with software
   fallbacks for host tests. The no-FPU analogue of `portable-atomic`'s no-CAS
   story: used on per-frame math hot paths to avoid software-emulated `f32`.
+- **`crates/bevy_nds_cothread`** — libnds cooperative threads
+  (`<nds/cothread.h>`) wrapped as a `Tasks` resource + `Task<T>` handle. The
+  runtime's vblank wait yields to spawned tasks (`cothread_yield_irq` in place
+  of `swiWaitForVBlank`), so blocking work (NitroFS reads, saves, WiFi) can
+  run off the per-frame critical path. Tasks are spawned **detached**: the
+  libnds scheduler reaps them on completion, sidestepping a use-after-free
+  against the scheduler's saved `next_ctx` that you get if you call
+  `cothread_delete` from another running cothread.
 
 **Capability crates** (additive, depended on directly by games when used):
 
@@ -153,6 +161,7 @@ starting in its own crate.
 | 3D geometry engine       | `Transform3d` + `DsMesh` + `Camera3d` resource          | `bevy_nds_3d::Ds3dPlugin`                           |
 | ARM7 sound (maxmod)      | `Music` resource (looping) + `PlaySfx` events           | `bevy_nds_audio::AudioPlugin`                       |
 | Math coprocessor (div/sqrt) | `Fx32` + `FxVec2`/`FxVec3`; `hw::div_*` / `hw::sqrt_*` | `bevy_nds_math`                                  |
+| Cooperative threads (`cothread`) | `Tasks` resource + `Task<T>` handle (`spawn` / `poll`) | `bevy_nds_cothread::CothreadPlugin`           |
 
 `DsPlugins` (in `bevy_nds`) bundles the platform-layer plugins;
 `bevy_nds::run(app)` (re-export from `bevy_nds_runtime`) installs the runner
