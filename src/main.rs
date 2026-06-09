@@ -295,11 +295,7 @@ fn setup(mut commands: Commands, nitrofs: Res<NitroFs>, mut music: ResMut<Music>
     ));
 
     // Companion marker (`O`). It doesn't move, so its `TilePos` is static.
-    commands.spawn((
-        DsScreen::Bottom,
-        cell_to_tile(companion_pos),
-        Glyph(b'O'),
-    ));
+    commands.spawn((DsScreen::Bottom, cell_to_tile(companion_pos), Glyph(b'O')));
 
     // HUD lines, below the map.
     commands.spawn((

@@ -87,12 +87,7 @@ fn which(name: &str) -> Option<PathBuf> {
 
 /// Bake one PNG into a [`Sprite`] in memory using `grit`. `work` is a scratch
 /// directory grit writes its intermediate `.img.bin` / `.pal.bin` files into.
-pub fn bake(
-    grit: &Path,
-    png: &Path,
-    work: &Path,
-    opts: &Options,
-) -> Result<Sprite, String> {
+pub fn bake(grit: &Path, png: &Path, work: &Path, opts: &Options) -> Result<Sprite, String> {
     fs::create_dir_all(work).map_err(|e| format!("mkdir {}: {e}", work.display()))?;
     let stem = png
         .file_stem()
@@ -103,13 +98,13 @@ pub fn bake(
     let status = Command::new(grit)
         .arg(png)
         .args([
-            "-gt",            // tile output
-            "-gB4",           // 4 bpp
-            "-gT0",           // transparent palette index 0
-            "-p",             // include palette
-            "-pu16",          // u16 palette entries
-            "-ftb",           // binary output
-            "-fh!",           // no C header
+            "-gt",   // tile output
+            "-gB4",  // 4 bpp
+            "-gT0",  // transparent palette index 0
+            "-p",    // include palette
+            "-pu16", // u16 palette entries
+            "-ftb",  // binary output
+            "-fh!",  // no C header
         ])
         .arg(format!("-o{}", out_base.display()))
         .status()
@@ -121,8 +116,7 @@ pub fn bake(
     let img_path = work.join(format!("{stem}.img.bin"));
     let pal_path = work.join(format!("{stem}.pal.bin"));
     let gfx = fs::read(&img_path).map_err(|e| format!("read {}: {e}", img_path.display()))?;
-    let pal_bytes =
-        fs::read(&pal_path).map_err(|e| format!("read {}: {e}", pal_path.display()))?;
+    let pal_bytes = fs::read(&pal_path).map_err(|e| format!("read {}: {e}", pal_path.display()))?;
 
     if pal_bytes.len() % 2 != 0 {
         return Err(format!(
@@ -243,8 +237,14 @@ mod tests {
         assert_eq!(u16::from_le_bytes([bytes[4], bytes[5]]), 16);
         assert_eq!(u16::from_le_bytes([bytes[6], bytes[7]]), 16);
         // palette count, gfx count
-        assert_eq!(u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]), 3);
-        assert_eq!(u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]), 4);
+        assert_eq!(
+            u32::from_le_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]),
+            3
+        );
+        assert_eq!(
+            u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]),
+            4
+        );
         // palette entries
         assert_eq!(u16::from_le_bytes([bytes[16], bytes[17]]), 0x0001);
         assert_eq!(u16::from_le_bytes([bytes[18], bytes[19]]), 0x0002);

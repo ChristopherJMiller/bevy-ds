@@ -164,10 +164,7 @@ impl Plugin for AudioPlugin {
             // NitroFS must be mounted before `mmInitDefault` can find the
             // soundbank at `nitro:/`. `bevy_nds_nitrofs::NitroFsPlugin` (added
             // by `DsPlugins`) handles the mount; we just order after it.
-            .add_systems(
-                PreStartup,
-                init_audio.after(bevy_nds_nitrofs::init_nitrofs),
-            )
+            .add_systems(PreStartup, init_audio.after(bevy_nds_nitrofs::init_nitrofs))
             .add_systems(Update, (drive_music, play_sfx_events));
     }
 }

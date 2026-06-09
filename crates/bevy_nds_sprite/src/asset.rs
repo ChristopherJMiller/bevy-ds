@@ -75,12 +75,7 @@ fn read_u16(bytes: &[u8], off: usize) -> u16 {
 }
 
 fn read_u32(bytes: &[u8], off: usize) -> u32 {
-    u32::from_le_bytes([
-        bytes[off],
-        bytes[off + 1],
-        bytes[off + 2],
-        bytes[off + 3],
-    ])
+    u32::from_le_bytes([bytes[off], bytes[off + 1], bytes[off + 2], bytes[off + 3]])
 }
 
 #[cfg(test)]
