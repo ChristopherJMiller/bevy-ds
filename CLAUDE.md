@@ -2,6 +2,32 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Game design (Kill the Serpent)
+
+The root crate is the game **Kill the Serpent** (a 3D cyber-dystopian DS capture
+game). Its design is governed by documents, not ad-hoc decisions:
+
+- **`docs/design/PILLARS.md`** is the north star — the three pillars (*the pen is
+  the power* · *pressure is the puzzle* · *few tools, many combos*), the holistic
+  (anti-segmentation) principle, and the prototype-first discipline.
+- The **GitHub issues** on this repo are the authoritative design record.
+  [#17](https://github.com/ChristopherJMiller/bevy-ds/issues/17) is the hub:
+  the `## Locked` control model + the repo-wide `## Open questions` register +
+  the tracking index.
+
+Two project skills keep this honest — **use them**:
+
+- **`design-guard`** — run *before* building any design-bearing feature. It loads
+  the pillars + the relevant issues, checks pillar/holistic alignment, and stops
+  to surface any blocking Open question before code is written.
+- **`design-sync`** — run *after* any design decision (in chat or while building).
+  It writes the decision back to the owning issue (`## Locked` + dated rationale),
+  updates #17, and keeps unresolved items flagged Open. `design-sync --audit`
+  sweeps for decisions discussed but never recorded.
+
+**Never assert an Open question as settled.** A decision doesn't count until it's
+written to its issue.
+
 ## Environment
 
 All builds need the BlocksDS toolchain, which is provided by the Nix dev shell.
