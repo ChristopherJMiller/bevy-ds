@@ -1,7 +1,7 @@
 # Kill the Serpent — Design Pillars & Process
 
 The north star. Read this first; then read the GitHub issues (the authoritative
-design record — [#17](https://github.com/ChristopherJMiller/bevy-ds/issues/17) is the hub).
+design record — [#17](https://github.com/ChristopherJMiller/kts-nds/issues/17) is the hub).
 
 A DS-native capture game: a 3D cyber-dystopian reimagining of Pokémon Ranger's
 loop-draw capture — a mechanic that *originated on this hardware*.
@@ -15,7 +15,7 @@ not by destroying its machines but by **hacking** them: tracing capture loops to
 seize the Serpent's agents back from its control, one node at a time.
 Anti-singularity, anti-capitalist — the small against the order. (This lean
 toward *liberate, not destroy* informs, but does not yet lock, the capture-vs-
-destroy open question in [#26](https://github.com/ChristopherJMiller/bevy-ds/issues/26).)
+destroy open question in [#26](https://github.com/ChristopherJMiller/kts-nds/issues/26).)
 
 ## The three pillars
 
@@ -74,7 +74,7 @@ something must stand alone, that's a flag worth defending out loud.
 
 ## The issues are the design record
 
-The GitHub issues on `ChristopherJMiller/bevy-ds` are authoritative — not chat
+The GitHub issues on `ChristopherJMiller/kts-nds` are authoritative — not chat
 logs, not this file's prose, not memory.
 
 - **Every design issue splits `## Locked` from `## Open questions`.** Locked is

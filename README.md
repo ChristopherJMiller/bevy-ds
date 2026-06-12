@@ -1,15 +1,34 @@
-# bevy-ds
+# Kill the Serpent
 
-[Bevy](https://bevyengine.org/)'s ECS running on a Nintendo DS, built into an
-`.nds` ROM that boots in an emulator or on hardware. The build runs entirely
-inside a Nix dev shell.
+A 3D cyber-dystopian capture game for the **Nintendo DS** — a reimagining of
+Pokémon Ranger's loop-draw capture, a mechanic that originated on this hardware.
+You play a rebel hacking the agents of a runaway AI superintelligence (the
+*Serpent*) back from its control, one node at a time.
 
-The workspace follows a "one capability, one crate" pattern: every DS subsystem
-(video, input, gestures, text, audio, 3D, …) is its own additive crate. Games
-depend on the **`bevy_nds`** umbrella, which re-exports everything and bundles
-the platform layer as a single `DsPlugins` group; they can also depend on
-individual subcrates directly and opt out of whatever they don't need (e.g.
-drop `bevy_nds_text` for a sprite-only game).
+The game (`kts`, the root crate) is built on **`bevy_nds`**, a companion library
+— developed in this same repo — that runs [Bevy](https://bevyengine.org/)'s
+`no_std` ECS on the DS and packages it into a bootable `.nds` ROM. The two
+evolve together: the game's needs drive which platform crates the library grows.
+Everything builds inside a Nix dev shell.
+
+**The design is governed by documents, not ad-hoc decisions.**
+[`docs/design/PILLARS.md`](docs/design/PILLARS.md) is the north star (the three
+pillars + the holistic "few tools, many combos" principle), and the GitHub
+issues are the authoritative design record —
+[#17](https://github.com/ChristopherJMiller/kts-nds/issues/17) is the hub (the
+locked control model + the repo-wide open-questions register). The root crate
+currently boots a small teapot/map tech demo (described below) that exercises
+the library while Milestone 1 de-risks the core feel; the game proper grows in
+`src/` from there.
+
+## The `bevy_nds` companion library
+
+The library workspace follows a "one capability, one crate" pattern: every DS
+subsystem (video, input, gestures, text, audio, 3D, …) is its own additive
+crate. Games depend on the **`bevy_nds`** umbrella, which re-exports everything
+and bundles the platform layer as a single `DsPlugins` group; they can also
+depend on individual subcrates directly and opt out of whatever they don't need
+(e.g. drop `bevy_nds_text` for a sprite-only game).
 
 - **`bevy_nds`** (`crates/bevy_nds`) — umbrella crate. Re-exports the platform
   subcrates and bundles them as `DsPlugins`.
@@ -74,16 +93,18 @@ drop `bevy_nds_text` for a sprite-only game).
   running emulator over desmume's gdbstub and prints `min/avg/p50/p95` frame
   time. `just preview` invokes it next to the screenshot so each preview run
   reports both *what* the demo looked like and *how* it performed.
-- **`bevy-ds`** (the root crate) — the demo. Plain Bevy components and systems,
-  with no FFI, allocator or panic handler.
+- **`kts`** (the root crate) — *Kill the Serpent*, the game (currently the
+  teapot/map tech demo). Plain Bevy components and systems, with no FFI,
+  allocator or panic handler — a pure consumer of the library above.
 
 <p align="center">
   <img src="docs/demo.png" alt="The map + HUD on the top screen with the hardware-lit teapots on the bottom" width="320">
 </p>
 
-The demo renders a hardware-lit Utah teapot on one screen and a text HUD on the
-other, with a smaller second teapot spinning beside it (two independent model
-matrices composed on the CPU each frame). The D-pad moves the player's teapot,
+The root crate's current tech demo (a placeholder while the game is built out
+per the design docs) renders a hardware-lit Utah teapot on one screen and a text
+HUD on the other, with a smaller second teapot spinning beside it (two
+independent model matrices composed on the CPU each frame). The D-pad moves the player's teapot,
 ABXY rotate it, and moving it off the edge sends it to the other screen. The
 models are loaded at runtime from the ROM filesystem (NitroFS), falling back to a
 copy baked into the binary if the filesystem is unavailable — the HUD shows which
@@ -177,7 +198,7 @@ the official toolchain into the Nix store and exports `$BLOCKSDS` /
 nix develop          # enter the dev shell (first run builds/fetches the toolchain)
 
 just build           # compile the ARM9 ELF (debug)
-just rom             # package it into bevy-ds.nds with ndstool
+just rom             # package it into kts.nds with ndstool
 just run             # build + package + launch melonDS
 just preview         # build + package + headless desmume screenshot -> preview.png
 ```
@@ -190,7 +211,7 @@ For the smaller, faster build, append `release`, e.g. `just run release`.
 | ------------------------ | ---------------------------------------------------------- |
 | `just build`             | Compile the ARM9 ELF (debug).                              |
 | `just build-release`     | Compile the ARM9 ELF (release).                            |
-| `just rom [profile]`     | Package an ELF into `bevy-ds.nds` (`ndstool`).             |
+| `just rom [profile]`     | Package an ELF into `kts.nds` (`ndstool`).             |
 | `just run [profile]`     | Build, package, and run in **melonDS** (interactive).      |
 | `just preview [profile]` | Build, package, boot in **desmume** headlessly, save `preview.png` and print frame-time stats (`samples=… min=… avg=… p95=… fps_avg=…`) read from the ROM's `PERF_BLOB` via the gdbstub. Override with `OUT=`, `WAIT=`, `DISP=`, `GDBPORT=`. |
 | `just snap [profile]`    | Like `preview`, but with a short default `WAIT` for grabbing the first stable frame (README banners, changelog snaps). Accepts fractional seconds. |
@@ -234,7 +255,7 @@ rust-toolchain.toml             pins nightly + rust-src (for build-std)
 armv5te-nintendo-ds.json        custom Tier-3 target spec (ARM946E-S, no_std)
 .cargo/config.toml              build-std + target selection
 build.rs                        injects libnds/specs/libgcc link args from $BLOCKSDS
-Cargo.toml                      workspace root + the `bevy-ds` game binary
+Cargo.toml                      workspace root + the `kts` game binary
 src/main.rs                     the game: pure Bevy components + systems (no FFI)
 Justfile                        build / rom / run / preview tasks
 crates/bevy_nds/                umbrella: re-exports + DsPlugins plugin group

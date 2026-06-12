@@ -2,16 +2,30 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## What this repo is
+
+This repo (`kts-nds`) holds **two things that evolve together**:
+
+- **Kill the Serpent** — the game (`kts`, the root crate): a 3D cyber-dystopian
+  DS capture game. *It currently boots a teapot/map tech demo* (`src/main.rs`)
+  that exercises the platform while Milestone 1 de-risks the core feel; the game
+  proper grows from there per the design docs below.
+- **`bevy_nds`** — the companion library (the `crates/` workspace) that runs
+  Bevy's `no_std` ECS on the DS. It is **actively developed here as a reusable
+  engine**, and the game's needs drive which platform crates it grows. Keep it
+  game-agnostic: game-specific names/paths belong in `kts`, not the library
+  (e.g. the save dir `fat:/kts/` is set by the game, overriding the library's
+  generic `fat:/bevy_nds/` default).
+
 ## Game design (Kill the Serpent)
 
-The root crate is the game **Kill the Serpent** (a 3D cyber-dystopian DS capture
-game). Its design is governed by documents, not ad-hoc decisions:
+The game's design is governed by documents, not ad-hoc decisions:
 
 - **`docs/design/PILLARS.md`** is the north star — the three pillars (*the pen is
   the power* · *pressure is the puzzle* · *few tools, many combos*), the holistic
   (anti-segmentation) principle, and the prototype-first discipline.
 - The **GitHub issues** on this repo are the authoritative design record.
-  [#17](https://github.com/ChristopherJMiller/bevy-ds/issues/17) is the hub:
+  [#17](https://github.com/ChristopherJMiller/kts-nds/issues/17) is the hub:
   the `## Locked` control model + the repo-wide `## Open questions` register +
   the tracking index.
 
@@ -27,6 +41,26 @@ Two project skills keep this honest — **use them**:
 
 **Never assert an Open question as settled.** A decision doesn't count until it's
 written to its issue.
+
+## Project skills
+
+Prefer these over doing the work by hand — they encode the conventions below:
+
+- **Design governance** — `design-guard` (run *before* building a design-bearing
+  feature), `design-sync` (run *after* any design decision), `design-space`
+  (author a new "space" in the level graph per [#27](https://github.com/ChristopherJMiller/kts-nds/issues/27)).
+- **New capability** — `add-capability` scaffolds a new `bevy_nds_<capability>`
+  crate the right way (Cargo.toml, lib.rs skeleton, workspace members, opt-level,
+  cfg gates, optional `DsPlugins` re-export). Use it instead of hand-rolling the
+  "Adding a capability" steps below.
+- **Assets** — `bake-asset` (add / re-bake a NitroFS model, sprite, or sound),
+  `asset-audit` (check source + baked assets against the DS hardware budgets and
+  find orphans / missing references).
+- **Run & feel** — `preview-rom` (build + headless screenshot of both LCDs +
+  frame-time stats), `playtest-log` (capture structured feel observations,
+  especially the Milestone-1 spikes, tied to the open-questions register).
+- **Reference lookups** — `blocksds-docs` (BlocksDS / libnds FFI + examples),
+  `maxmod-docs` (the ARM7 audio mixer behind `bevy_nds_audio`).
 
 ## Environment
 
@@ -46,7 +80,7 @@ The `Justfile` is the entry point (`just --list` for everything):
 - `just test [filter]` — host-side unit tests (see "Testing" below).
 - `just fmt` — `cargo fmt`. `clippy` is installed but not wired to a task; run
   `cargo clippy` manually.
-- `just rom [profile]` — package the ELF into `bevy-ds.nds` with `ndstool`,
+- `just rom [profile]` — package the ELF into `kts.nds` with `ndstool`,
   bundling the maxmod ARM7 core (so audio works) and `build/nitrofs/`.
 - `just run [profile]` — build + package + launch melonDS.
 - `just preview [profile]` — build + package + headless desmume screenshot to
@@ -171,8 +205,8 @@ they don't need (e.g. drop `bevy_nds_text` for a sprite-only game).
   `assets/backgrounds/bitmap/**/*.png` into `.bbg`. Emits
   `$OUT_DIR/backgrounds.rs` (constants module of NitroFS paths,
   `backgrounds::tiled::*` / `backgrounds::bitmap::*`).
-- **`bevy-ds`** (root, `src/main.rs`) — the game. A *pure-Bevy consumer*: only
-  components and systems, **no FFI / allocator / panic handler**.
+- **`kts`** (root, `src/main.rs`) — *Kill the Serpent*, the game. A *pure-Bevy
+  consumer*: only components and systems, **no FFI / allocator / panic handler**.
 
 New game logic belongs in the root crate; new hardware capability gets its own
 crate (see "Adding a capability" below).
@@ -180,7 +214,8 @@ crate (see "Adding a capability" below).
 ### Adding a capability
 
 When you reach for a new DS subsystem (sprites, save data, Wi-Fi, RTC, …),
-**add a new crate, don't expand an existing one**. The pattern:
+**add a new crate, don't expand an existing one**. The `add-capability` skill
+scaffolds all of this; the pattern it follows:
 
 1. `crates/bevy_nds_<capability>/` with its own `Cargo.toml` and `src/lib.rs`.
 2. Hand-written FFI lives in `src/ffi.rs` (or inline in `lib.rs` if small),
@@ -316,7 +351,7 @@ game `include!`s, so no hard-coded indices). maxmod loads the bank from
 - **Profiles.** Both profiles use `panic = "abort"`. Dev optimises *all
   dependencies* (`[profile.dev.package."*"] opt-level = 3`) and each of our
   engine subcrates explicitly (the `bevy_nds*` family) so the debug ROM still
-  hits 60 fps on the 33 MHz ARM9. The *game* crate (`bevy-ds`) is at
+  hits 60 fps on the 33 MHz ARM9. The *game* crate (`kts`) is at
   `opt-level = 1` — every additional capability plugin (sprite, audio, bg, …)
   adds another batch of monomorphized Bevy ECS code, and at `opt-level = 0`
   the debug binary grew past the 3.5 MiB EWRAM ceiling. opt-level=1 brings it

@@ -1,6 +1,6 @@
 ---
 name: asset-audit
-description: DS-budget-aware asset auditor for the bevy-ds platform / Kill the Serpent. Read-only diagnostic. Use to check source + baked assets against the DS hardware limits (per-frame geometry budget, the 16 sprite 4bpp palette-bank cap, sprite square-size constraints, VRAM banks, mmutil audio formats) and to find NitroFS orphans (baked but unreferenced) and missing references (referenced but unbaked). Run before a milestone, after adding assets, or when the ROM nears a limit.
+description: DS-budget-aware asset auditor for the bevy_nds platform / Kill the Serpent. Read-only diagnostic. Use to check source + baked assets against the DS hardware limits (per-frame geometry budget, the 16 sprite 4bpp palette-bank cap, sprite square-size constraints, VRAM banks, mmutil audio formats) and to find NitroFS orphans (baked but unreferenced) and missing references (referenced but unbaked). Run before a milestone, after adding assets, or when the ROM nears a limit.
 ---
 
 # asset-audit

@@ -46,8 +46,8 @@ change you can't see on top is fine.
 ## Quick interpretation
 
 - **Completely black both screens** → the ROM panicked or didn't boot.
-  Check `/tmp/bevy-ds-emu.log` for desmume's exit reason and
-  `/tmp/bevy-ds-xvfb.log` for the X server.
+  Check `/tmp/kts-emu.log` for desmume's exit reason and
+  `/tmp/kts-xvfb.log` for the X server.
 - **Text garbled or in wrong cells** → the diff-renderer in `bevy_nds_text`
   is mis-rendering. Check `front`/`back` grid state in your edits.
 - **Sprite invisible** → `.sprite` blob didn't bake (look for the

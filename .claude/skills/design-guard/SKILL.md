@@ -25,9 +25,9 @@ proceeding (you may need `design-sync` to file it first).
 
 ### 2. Load the design context
 - Read `docs/design/PILLARS.md` (the three pillars + the holistic principle).
-- `gh issue view 17 --repo ChristopherJMiller/bevy-ds` (the hub: locked control
+- `gh issue view 17 --repo ChristopherJMiller/kts-nds` (the hub: locked control
   model + the repo-wide Open-questions register).
-- `gh issue view <target> --repo ChristopherJMiller/bevy-ds` (the specific
+- `gh issue view <target> --repo ChristopherJMiller/kts-nds` (the specific
   epic/spike, including its own `## Locked` / `## Open questions`).
 
 ### 3. Pillar + holistic check

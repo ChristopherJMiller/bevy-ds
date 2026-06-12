@@ -1,8 +1,10 @@
-# Copilot instructions for `bevy-ds`
+# Copilot instructions for `kts-nds`
 
-Running Bevy's `no_std` ECS on the **Nintendo DS**, packaged into a bootable
-`.nds` ROM. Read `README.md` for the full design narrative; this file captures
-the conventions that matter when editing the code.
+**Kill the Serpent** — a Nintendo DS game built on **`bevy_nds`**, a companion
+library that runs Bevy's `no_std` ECS on the DS and is developed in this same
+repo. The game (`kts`, the root crate) drives what platform crates `bevy_nds`
+grows. Read `README.md` for the full narrative; this file captures the
+conventions that matter when editing the code.
 
 ## Environment & commands
 
@@ -17,7 +19,7 @@ The `Justfile` is the entry point (run `just --list`):
 - `just check` — `cargo check` (fast feedback loop; no ROM).
 - `just test [filter]` — run the `bevy_nds` host-side unit tests.
 - `just fmt` — `cargo fmt`.
-- `just rom [profile]` — package the ELF into `bevy-ds.nds` with `ndstool`.
+- `just rom [profile]` — package the ELF into `kts.nds` with `ndstool`.
 - `just run [profile]` — build + package + launch melonDS.
 - `just preview [profile]` — build + package + headless desmume screenshot to
   `preview.png` (CI-friendly; override with `OUT=`, `WAIT=`, `DISP=`).
@@ -49,10 +51,10 @@ Two crates, with a deliberate separation of concerns:
 - **`crates/bevy_nds`** — the reusable engine layer. It owns *all* DS-specific
   wiring: FFI, the global allocator, the panic handler, the `critical-section`
   impl, video/input/time/rendering plugins, and the vblank frame loop.
-- **`bevy-ds`** (root crate, `src/main.rs`) — the game. A *pure-Bevy consumer*
-  of `bevy_nds`: only components and systems, **no FFI / allocator / panic
-  handler**. New game logic belongs here; new hardware capability belongs in
-  `bevy_nds`.
+- **`kts`** (root crate, `src/main.rs`) — *Kill the Serpent*, the game. A
+  *pure-Bevy consumer* of `bevy_nds`: only components and systems, **no FFI /
+  allocator / panic handler**. New game logic belongs here; new hardware
+  capability gets its own `bevy_nds_<capability>` crate.
 
 The mapping from DS hardware to ECS concepts is the core idea — keep it intact:
 

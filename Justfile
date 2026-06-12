@@ -1,11 +1,11 @@
-# Justfile — build & run tasks for the Bevy-on-Nintendo-DS project.
+# Justfile — build & run tasks for Kill the Serpent (on the bevy_nds DS engine).
 # Run `just` (or `just --list`) inside `nix develop`.
 
 set shell := ["bash", "-uc"]
 
 # Path to the compiled ARM9 ELF for a given cargo profile.
 target_dir := "target/armv5te-nintendo-ds"
-rom := "bevy-ds.nds"
+rom := "kts.nds"
 
 # Default: build a debug ROM and launch it in melonDS.
 default: run
@@ -88,7 +88,7 @@ rom profile="debug": (_build profile)
     #!/usr/bin/env bash
     set -euo pipefail
     : "${BLOCKSDS:?Run 'nix develop' first so BLOCKSDS is set}"
-    elf="{{target_dir}}/{{profile}}/bevy-ds.elf"
+    elf="{{target_dir}}/{{profile}}/kts.elf"
     ndstool="$BLOCKSDS/tools/ndstool/ndstool"
     # Audio is mixed on the ARM7 by maxmod, so the ROM must embed the maxmod ARM7
     # core (the `minimal` core has no sound). Prefer it; fall back to minimal only
@@ -99,7 +99,7 @@ rom profile="debug": (_build profile)
     [ -d build/nitrofs ] && nitrofs_args=(-d build/nitrofs)
     "$ndstool" -c "{{rom}}" -7 "$arm7" -9 "$elf" \
         "${nitrofs_args[@]}" \
-        -h 0x200 -g BEVY ME "Bevy DS"
+        -h 0x200 -g KTSE ME "Kill the Serpent"
     echo "Wrote {{rom}} from $elf"
 
 # Build a ROM (debug by default) and run it in the melonDS emulator.
@@ -120,7 +120,7 @@ preview profile="debug": (rom profile) (_build_perfread)
     wait_s="${WAIT:-10}"
     disp="${DISP:-:99}"
     port="${GDBPORT:-9999}"
-    elf="{{target_dir}}/{{profile}}/bevy-ds.elf"
+    elf="{{target_dir}}/{{profile}}/kts.elf"
     host="$(rustc -vV | sed -n 's/^host: //p')"
     perfread="target/$host/debug/perfread"
     # Fish PERF_BLOB out of the ELF so perfread can read it directly instead
@@ -132,7 +132,7 @@ preview profile="debug": (rom profile) (_build_perfread)
     cleanup_pids=()
     trap 'for p in "${cleanup_pids[@]}"; do kill -9 "$p" 2>/dev/null || true; done' EXIT INT TERM
     echo "Booting {{rom}} in desmume (headless, gdbstub :$port) on $disp …"
-    Xvfb "$disp" -screen 0 256x384x24 >/tmp/bevy-ds-xvfb.log 2>&1 &
+    Xvfb "$disp" -screen 0 256x384x24 >/tmp/kts-xvfb.log 2>&1 &
     cleanup_pids+=("$!")
     sleep 2
     # `--disable-sound` keeps the preview silent: the preview is meant for
@@ -144,7 +144,7 @@ preview profile="debug": (rom profile) (_build_perfread)
     # debugger sends `c`. perfread (below) drives that, so the emulator runs
     # for exactly the same window we time the screenshot against.
     DISPLAY="$disp" SDL_VIDEODRIVER=x11 SDL_AUDIODRIVER=dummy \
-        desmume-cli --nojoy --disable-sound --arm9gdb "$port" "{{rom}}" >/tmp/bevy-ds-emu.log 2>&1 &
+        desmume-cli --nojoy --disable-sound --arm9gdb "$port" "{{rom}}" >/tmp/kts-emu.log 2>&1 &
     cleanup_pids+=("$!")
     # Give the gdbstub a moment to bind before perfread races to connect.
     sleep 1
@@ -154,18 +154,18 @@ preview profile="debug": (rom profile) (_build_perfread)
     #   * sleeps `wait_s` seconds (during which the demo fills the PerfBlob
     #     ring and we grab the screenshot below),
     #   * BREAKs, reads PerfBlob, prints the one-line summary.
-    "$perfread" --port "$port" --addr "$perf_addr" --run-ms $((wait_s * 1000)) >/tmp/bevy-ds-perf.log 2>&1 &
+    "$perfread" --port "$port" --addr "$perf_addr" --run-ms $((wait_s * 1000)) >/tmp/kts-perf.log 2>&1 &
     perfread_pid=$!
     # Grab the screenshot just before perfread BREAKs — at 90 % of the run
     # window the demo is in a steady-state frame, not still booting.
     sleep "$(awk -v w="$wait_s" 'BEGIN { printf "%.2f", w * 0.9 }')"
     DISPLAY="$disp" import -window root "$out"
     wait "$perfread_pid" || true
-    echo "Saved $out (emulator log: /tmp/bevy-ds-emu.log)"
-    if [ -s /tmp/bevy-ds-perf.log ]; then
-        echo "Perf:  $(cat /tmp/bevy-ds-perf.log)"
+    echo "Saved $out (emulator log: /tmp/kts-emu.log)"
+    if [ -s /tmp/kts-perf.log ]; then
+        echo "Perf:  $(cat /tmp/kts-perf.log)"
     else
-        echo "Perf:  (no data — see /tmp/bevy-ds-perf.log)"
+        echo "Perf:  (no data — see /tmp/kts-perf.log)"
     fi
 
 # Internal: build the host-side `perfread` tool used by `just preview`. Split
@@ -188,13 +188,13 @@ snap profile="debug": (rom profile)
     # bash arithmetic is integer-only; round wait_s up for the timeout budgets.
     wait_int=$(awk -v w="$wait_s" 'BEGIN { printf "%d", (w == int(w) ? w : int(w) + 1) }')
     echo "Booting {{rom}} in desmume (headless) on $disp, sleeping ${wait_s}s …"
-    timeout $((wait_int + 20)) Xvfb "$disp" -screen 0 256x384x24 >/tmp/bevy-ds-xvfb.log 2>&1 &
+    timeout $((wait_int + 20)) Xvfb "$disp" -screen 0 256x384x24 >/tmp/kts-xvfb.log 2>&1 &
     sleep 2
     DISPLAY="$disp" SDL_VIDEODRIVER=x11 SDL_AUDIODRIVER=dummy \
-        timeout $((wait_int + 6)) desmume-cli --nojoy --disable-sound "{{rom}}" >/tmp/bevy-ds-emu.log 2>&1 &
+        timeout $((wait_int + 6)) desmume-cli --nojoy --disable-sound "{{rom}}" >/tmp/kts-emu.log 2>&1 &
     sleep "$wait_s"
     DISPLAY="$disp" import -window root "$out"
-    echo "Saved $out (emulator log: /tmp/bevy-ds-emu.log)"
+    echo "Saved $out (emulator log: /tmp/kts-emu.log)"
     wait 2>/dev/null || true
 
 # Remove build artifacts and the generated ROM.

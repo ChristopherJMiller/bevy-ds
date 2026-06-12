@@ -84,7 +84,7 @@
             # Put the BlocksDS-bundled arm-none-eabi toolchain (the exact one
             # libnds was compiled with) on PATH for linking the ROM.
             export PATH="$WONDERFUL_TOOLCHAIN/toolchain/gcc-arm-none-eabi/bin:$PATH"
-            echo "bevy-ds dev shell"
+            echo "kts-nds dev shell"
             echo "  BLOCKSDS = $BLOCKSDS"
             echo "  rustc    = $(rustc --version 2>/dev/null)"
             echo "  just <tab> for tasks (build, rom, run, …)"

@@ -4,7 +4,8 @@
 //! `fatInitDefault()` (libnds), reports availability via [`StorageStatus`],
 //! and exposes a small slot-keyed [`SaveStorage`] API for reading and writing
 //! game saves. Files live at `<base_dir>/<slot>.sav` (default `base_dir`
-//! is `fat:/bevy-ds/`); slot names are validated to forbid path traversal.
+//! is `fat:/bevy_nds/`; games set their own via [`SavePlugin::base_dir`]);
+//! slot names are validated to forbid path traversal.
 //!
 //! ## Blocking vs. async
 //!
@@ -56,9 +57,11 @@ mod ffi;
 #[cfg(target_vendor = "nintendo")]
 mod sys;
 
-/// Default mount + per-game directory used when [`SavePlugin::base_dir`] is
-/// `None`. Must already end in `/`.
-pub const DEFAULT_BASE_DIR: &str = "fat:/bevy-ds/";
+/// Library-default mount + directory used when [`SavePlugin::base_dir`] is
+/// `None`. Deliberately generic (named after the engine, not any one game) so
+/// `bevy_nds` stays game-agnostic — each game should set its own per-game
+/// `base_dir` (e.g. Kill the Serpent uses `fat:/kts/`). Must already end in `/`.
+pub const DEFAULT_BASE_DIR: &str = "fat:/bevy_nds/";
 
 /// Whether [`fatInitDefault()`](https://blocksds.skylyrac.net/) succeeded and
 /// the slot directory exists.
@@ -321,38 +324,38 @@ mod tests {
     #[test]
     fn slot_path_joins_with_extension() {
         assert_eq!(
-            slot_path("fat:/bevy-ds/", "save_0").as_deref(),
-            Some("fat:/bevy-ds/save_0.sav"),
+            slot_path("fat:/bevy_nds/", "save_0").as_deref(),
+            Some("fat:/bevy_nds/save_0.sav"),
         );
     }
 
     #[test]
     fn slot_path_inserts_missing_separator() {
         assert_eq!(
-            slot_path("fat:/bevy-ds", "save_0").as_deref(),
-            Some("fat:/bevy-ds/save_0.sav"),
+            slot_path("fat:/bevy_nds", "save_0").as_deref(),
+            Some("fat:/bevy_nds/save_0.sav"),
         );
     }
 
     #[test]
     fn slot_path_rejects_traversal() {
-        assert_eq!(slot_path("fat:/bevy-ds/", "../escape"), None);
-        assert_eq!(slot_path("fat:/bevy-ds/", "sub/dir"), None);
-        assert_eq!(slot_path("fat:/bevy-ds/", "back\\slash"), None);
-        assert_eq!(slot_path("fat:/bevy-ds/", ".."), None);
-        assert_eq!(slot_path("fat:/bevy-ds/", "."), None);
+        assert_eq!(slot_path("fat:/bevy_nds/", "../escape"), None);
+        assert_eq!(slot_path("fat:/bevy_nds/", "sub/dir"), None);
+        assert_eq!(slot_path("fat:/bevy_nds/", "back\\slash"), None);
+        assert_eq!(slot_path("fat:/bevy_nds/", ".."), None);
+        assert_eq!(slot_path("fat:/bevy_nds/", "."), None);
     }
 
     #[test]
     fn slot_path_rejects_empty_and_nul() {
-        assert_eq!(slot_path("fat:/bevy-ds/", ""), None);
-        assert_eq!(slot_path("fat:/bevy-ds/", "with\0nul"), None);
+        assert_eq!(slot_path("fat:/bevy_nds/", ""), None);
+        assert_eq!(slot_path("fat:/bevy_nds/", "with\0nul"), None);
     }
 
     #[test]
     fn slot_path_accepts_alphanumeric_and_punct() {
         for name in ["a", "save_0", "high.scores", "level-3", "ABC", "1234"] {
-            assert!(slot_path("fat:/bevy-ds/", name).is_some(), "{name}");
+            assert!(slot_path("fat:/bevy_nds/", name).is_some(), "{name}");
         }
     }
 

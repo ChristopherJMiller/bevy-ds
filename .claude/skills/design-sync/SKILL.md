@@ -6,7 +6,7 @@ description: Keep the Kill the Serpent design record authoritative and honest. U
 # design-sync
 
 A decision made in conversation **does not count** until it's written to the
-owning issue. This skill keeps the GitHub board (`ChristopherJMiller/bevy-ds`)
+owning issue. This skill keeps the GitHub board (`ChristopherJMiller/kts-nds`)
 the single source of truth, and keeps it *honest* — locked things are decided,
 open things are visibly open, and nothing pretends to be settled that isn't.
 
@@ -24,11 +24,11 @@ each pointing at its home issue) and the milestone/epic **tracking index**.
 ## Mode A — record a decision
 
 1. **Identify the owning issue** for the decision.
-2. `gh issue view <n> --repo ChristopherJMiller/bevy-ds` to get the current body.
+2. `gh issue view <n> --repo ChristopherJMiller/kts-nds` to get the current body.
 3. Edit the body:
    - Add the decision to `## Locked` with a dated rationale.
    - Remove (or strike through) the now-resolved item from `## Open questions`.
-4. `gh issue edit <n> --repo ChristopherJMiller/bevy-ds --body-file <tmp>`.
+4. `gh issue edit <n> --repo ChristopherJMiller/kts-nds --body-file <tmp>`.
 5. **Update the hub (#17):** resolve the matching `OQ-n` in the register (strike
    it, note where/when decided), and tick the tracking index if a piece shipped.
 6. If the decision changes the **locked control model**, reflect it in #17's
@@ -36,7 +36,7 @@ each pointing at its home issue) and the milestone/epic **tracking index**.
 
 ## Mode B — `--audit` (honesty sweep)
 
-1. `gh issue list --repo ChristopherJMiller/bevy-ds --label design --label epic --label spike --label vision --state open` (run per-label as needed).
+1. `gh issue list --repo ChristopherJMiller/kts-nds --label design --label epic --label spike --label vision --state open` (run per-label as needed).
 2. For each issue, verify it has **both** `## Locked` and `## Open questions`
    sections. If an older issue has design notes inline, migrate them into the
    split (locked facts → Locked; hedges/"TBD"/"open" → Open questions).

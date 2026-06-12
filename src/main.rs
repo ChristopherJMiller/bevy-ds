@@ -26,6 +26,7 @@ use core::fmt::Write;
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 use bevy_nds::prelude::*;
+use bevy_nds::SavePlugin;
 use bevy_nds_3d::prelude::*;
 use bevy_nds_audio::prelude::*;
 use bevy_nds_bg::prelude::*;
@@ -61,7 +62,11 @@ mod backgrounds {
 #[unsafe(no_mangle)]
 pub extern "C" fn main() -> core::ffi::c_int {
     let mut app = App::new();
-    app.add_plugins(DsPlugins)
+    // Override the engine-default save directory (`fat:/bevy_nds/`) with this
+    // game's own, so Kill the Serpent's slot files live under `fat:/kts/`.
+    app.add_plugins(DsPlugins.set(SavePlugin {
+        base_dir: Some("fat:/kts/".into()),
+    }))
         .add_plugins(Ds3dPlugin)
         .add_plugins(AudioPlugin)
         .add_plugins(SpritePlugin)
@@ -238,7 +243,7 @@ struct BgTaskHud;
 struct ClockHud;
 
 /// A status line for the save-storage demo: shows the live frame counter
-/// plus the last value committed to `fat:/bevy-ds/counter.sav`. The counter
+/// plus the last value committed to `fat:/kts/counter.sav`. The counter
 /// resumes across reboots, proving the SD-card write/read round-trip.
 #[derive(Component)]
 struct SaveHud;
@@ -325,9 +330,9 @@ fn setup(
     // Top screen: title, map rows (composed each frame from `Map` + entities),
     // and HUD lines.
     let source = if from_nitrofs {
-        "bevy-ds map demo  (nitrofs)"
+        "kts map demo  (nitrofs)"
     } else {
-        "bevy-ds map demo  (baked-in)"
+        "kts map demo  (baked-in)"
     };
     commands.spawn((DsScreen::Bottom, TilePos::new(2, 0), DsText::new(source)));
 

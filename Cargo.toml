@@ -29,13 +29,14 @@ members = [
 resolver = "2"
 
 [package]
-name = "bevy-ds"
+name = "kts"
 version = "0.1.0"
 edition = "2024"
 
-# The game binary. It is a *consumer* of the `bevy_nds` library: all DS-specific
-# wiring (FFI, allocator, panic handler, screens, input, rendering, the frame
-# loop) lives in that crate, so the game below is ordinary, portable Bevy code.
+# Kill the Serpent — the game. It is a *consumer* of the `bevy_nds` companion
+# library: all DS-specific wiring (FFI, allocator, panic handler, screens, input,
+# rendering, the frame loop) lives in those crates, so the game below is ordinary,
+# portable Bevy code. The game's needs drive which `bevy_nds` crates exist.
 
 [dependencies]
 bevy_nds = { path = "crates/bevy_nds" }
@@ -89,14 +90,14 @@ lto = "thin"
 [profile.dev.package."*"]
 opt-level = 3
 
-# The game crate (`bevy-ds`, the root) ships with the demo's `setup` /
-# update systems. We used to leave it at opt-level = 0 for fast iteration, but
+# The game crate (`kts`, the root) ships with the game's `setup` / update
+# systems. We used to leave it at opt-level = 0 for fast iteration, but
 # every additional capability plugin (sprite, audio, bg, …) adds another batch
 # of monomorphized Bevy ECS code to it, and at opt-level = 0 those grew past
 # the ARM9's 3.5 MiB EWRAM ceiling. opt-level = 1 brings the binary back under
 # without noticeably slowing rebuilds. Engine subcrates below stay at 3
 # because they sit on the per-frame hot path.
-[profile.dev.package.bevy-ds]
+[profile.dev.package.kts]
 opt-level = 1
 
 # Our engine subcrates are on the per-frame hot path (FFI packing, the 3D render

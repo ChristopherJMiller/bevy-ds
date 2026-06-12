@@ -38,25 +38,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bevy-ds"
-version = "0.1.0"
-dependencies = [
- "bevy_app",
- "bevy_ecs",
- "bevy_input",
- "bevy_nds",
- "bevy_nds_3d",
- "bevy_nds_audio",
- "bevy_nds_bg",
- "bevy_nds_sprite",
- "bevy_time",
- "obj2dl",
- "png2bg",
- "png2sprite",
- "wav2bank",
-]
-
-[[package]]
 name = "bevy_app"
 version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -724,6 +705,25 @@ dependencies = [
  "futures-util",
  "once_cell",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "kts"
+version = "0.1.0"
+dependencies = [
+ "bevy_app",
+ "bevy_ecs",
+ "bevy_input",
+ "bevy_nds",
+ "bevy_nds_3d",
+ "bevy_nds_audio",
+ "bevy_nds_bg",
+ "bevy_nds_sprite",
+ "bevy_time",
+ "obj2dl",
+ "png2bg",
+ "png2sprite",
+ "wav2bank",
 ]
 
 [[package]]
